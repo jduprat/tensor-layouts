@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tensor-layouts"
+version = "0.1.0"
+description = "Pure-Python GPU layout algebra for NVIDIA and AMD tensor core access patterns — no GPU required"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Jean-Luc Duprat" },
+    { name = "Meta Platforms, Inc." },
+]
+keywords = ["cuda", "rocm", "gpu", "cutlass", "cute", "layout", "tensor-core", "nvidia", "amd"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = []
+
+[project.optional-dependencies]
+viz = ["matplotlib>=3.5"]
+test = ["pytest>=7.0"]
+oracle-nv = ["nvidia-cutlass"]
+dev = ["pytest>=7.0", "matplotlib>=3.5"]
+
+[project.urls]
+Homepage = "https://github.com/facebookresearch/tensor-layouts"
+Repository = "https://github.com/facebookresearch/tensor-layouts"
+Issues = "https://github.com/facebookresearch/tensor-layouts/issues"
+
+[tool.hatch.envs.default.scripts]
+clean = "make clean"
+test = "make test"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["*.py"]

@@ -1,0 +1,212 @@
+# Layout Algebra API
+
+This document covers the core `tensor_layouts` API: constructing layouts,
+querying their properties, and applying the four algebraic operations
+(compose, complement, divide, product).
+
+For runnable examples see [`examples/layouts.py`](../examples/layouts.py).
+For visualization see [`docs/viz_api.md`](viz_api.md).
+
+## What is a Layout?
+
+A `Layout` is a function from logical coordinates to memory offsets:
+
+```
+offset = sum(coord_i * stride_i)
+```
+
+It is defined by a `(shape, stride)` pair.  The **shape** describes the
+logical domain (how many elements along each dimension); the **stride**
+describes how far apart elements are in memory along that dimension.
+
+```python
+from tensor_layouts import Layout
+
+col_major = Layout((4, 8), (1, 4))   # offset(i,j) = i + 4*j
+row_major = Layout((4, 8), (8, 1))   # offset(i,j) = 8*i + j
+```
+
+Shapes can be **hierarchically nested** — tuples of tuples — to describe
+tiled access patterns, interleaved threads, or any multi-level structure:
+
+```python
+tiled = Layout(((2, 3), (2, 4)), ((1, 6), (2, 12)))
+# 2x2 tiles arranged in a 3x4 grid = 6 rows x 8 columns
+```
+
+## Construction
+
+| Form | Description |
+|------|-------------|
+| `Layout(shape, stride)` | Explicit shape and stride |
+| `Layout(shape)` | Column-major strides computed automatically |
+| `Layout(layout_a, layout_b)` | Bundle two layouts as modes of one layout |
+
+```python
+Layout((4, 8), (1, 4))   # explicit
+Layout((4, 8))            # same as above (column-major default)
+Layout(8, 2)              # 1D: 8 elements with stride 2
+Layout((4, 8), (0, 1))   # broadcast: all rows map to same offsets
+```
+
+## Coordinate Mapping
+
+Call a layout to map coordinates to offsets:
+
+```python
+layout = Layout((4, 8), (1, 4))
+
+layout(2, 3)    # 14  — multi-dimensional coordinate
+layout(14)      # 14  — flat index (column-major order through domain)
+```
+
+## Query Functions
+
+All query functions work on layouts, tuples, and ints.
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `size(L)` | Total number of elements | `size(Layout((4, 8))) == 32` |
+| `cosize(L)` | Max offset + 1 (codomain span) | `cosize(Layout((4, 8), (8, 1))) == 32` |
+| `rank(L)` | Number of top-level modes | `rank(Layout((4, 8))) == 2` |
+| `depth(L)` | Maximum nesting depth | `depth(Layout(((2,3), 4))) == 2` |
+| `mode(L, i)` | Extract mode `i` as a Layout | `mode(Layout((4, 8), (1, 4)), 0) == Layout(4, 1)` |
+
+## Layout Manipulation
+
+| Function | Description |
+|----------|-------------|
+| `flatten(L)` | Remove all nesting, produce flat modes |
+| `coalesce(L)` | Merge adjacent modes with compatible strides |
+| `sort(L)` | Reorder modes by stride (ascending) |
+| `append(L, M)` | Add mode M after L's modes |
+| `prepend(L, M)` | Add mode M before L's modes |
+| `group(L, i, j)` | Nest modes i..j into a single hierarchical mode |
+
+## Tuple Arithmetic
+
+These operate on the nested integer tuples that make up shapes and strides.
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `prefix_product(t)` | Running product (exclusive) | `prefix_product((2,3,4)) == (1,2,6)` |
+| `suffix_product(t)` | Running product from right | `suffix_product((2,3,4)) == (12,4,1)` |
+| `inner_product(a, b)` | Sum of element-wise products | `inner_product((2,3), (4,5)) == 23` |
+| `elem_scale(a, b)` | Element-wise multiply | `elem_scale((2,3), (4,5)) == (8,15)` |
+
+`prefix_product` computes column-major strides; `suffix_product` computes
+row-major strides.
+
+## Core Algebra
+
+### compose(A, B)
+
+Function composition: `C(i) = A(B(i))`.
+
+B selects which elements of A to visit, and in what order.  The result has
+B's shape.
+
+```python
+compose(Layout(8, 2), Layout(4, 1))  # Layout(4, 2)
+# B picks indices 0..3 from A; A maps each to 0,2,4,6
+
+compose(Layout((4, 8), (8, 1)), (2, 4))  # Layout((2, 4), (8, 1))
+# Select the top-left 2x4 subblock (mode-by-mode with shape tiler)
+```
+
+When `A` is a `Swizzle`, the result is a `Layout` with an embedded swizzle.
+
+### complement(L, bound)
+
+The layout that fills in L's codomain gaps up to `bound`.
+
+```python
+complement(Layout(4, 2), 16)  # Layout((2, 2), (1, 8))
+# L visits {0,2,4,6}; complement visits the gaps {0,1} and extends to 16
+```
+
+Together, `Layout(L, complement(L))` covers every offset exactly once.
+
+### logical_divide(L, T)
+
+Split L into `(tile, rest)` — the core tiling operation.
+
+```python
+logical_divide(Layout(16, 1), 4)  # Layout((4, 4), (1, 4))
+# 4-element tiles, 4 tiles total
+```
+
+Variants control result organization:
+
+| Function | Result structure |
+|----------|-----------------|
+| `logical_divide` | `((tile0, rest0), (tile1, rest1), ...)` |
+| `zipped_divide` | `((tiles), (rests))` |
+| `tiled_divide` | `((tiles), rest0, rest1, ...)` |
+| `flat_divide` | `(tile0, tile1, rest0, rest1, ...)` |
+
+### logical_product(A, B)
+
+Replicate A's pattern at each position B describes.
+
+```python
+logical_product(Layout(4, 1), Layout(3, 1))  # Layout((4, 3), (1, 4))
+# 4-element tile repeated 3 times: offsets [0..3], [4..7], [8..11]
+```
+
+| Function | Description |
+|----------|-------------|
+| `logical_product` | Concatenates tile and replication |
+| `blocked_product` | Interleaves corresponding modes |
+| `raked_product` | Interleaves within each tile |
+
+## Inverse
+
+| Function | Property |
+|----------|----------|
+| `right_inverse(L)` | `L(R(i)) == i` for all valid i |
+| `left_inverse(L)` | `R(L(i)) == i` for all valid i |
+| `max_common_layout(A, B)` | Largest layout that divides both A and B |
+
+## Swizzle
+
+`Swizzle(bits, base, shift)` is an XOR-based permutation for GPU shared
+memory bank conflict avoidance:
+
+```python
+sw = Swizzle(3, 0, 3)
+sw(offset)  # offset XOR ((offset >> 3) & 0b111)
+```
+
+Compose a Swizzle with a Layout to embed it:
+
+```python
+swizzled = compose(Swizzle(3, 0, 3), Layout((8, 8), (8, 1)))
+# swizzled(i, j) applies the XOR after computing the linear offset
+```
+
+## Tensor
+
+`Tensor(layout, offset=0)` combines a Layout with a base offset (the
+pointer equivalent from CuTe C++).  Supports slicing:
+
+```python
+t = Tensor(Layout((4, 8), (8, 1)))
+t(2, 5)     # 21 — same as layout(2, 5)
+t[2, :]     # Tensor(8:1, offset=16) — row 2
+t[:, 5]     # Tensor(4:8, offset=5)  — column 5
+t[2, 5]     # 21 — fix all modes, returns int
+```
+
+## Tile
+
+`Tile(L0, L1, ...)` is a tuple of Layouts for mode-by-mode composition:
+
+```python
+layout = Layout((12, 8), (8, 1))
+tiler = Tile(Layout(3, 1), Layout(4, 1))
+compose(layout, tiler)  # Layout((3, 4), (8, 1)) — top-left 3x4 subblock
+```
+
+A plain tuple of ints `(3, 4)` works as shorthand for
+`Tile(Layout(3, 1), Layout(4, 1))`.
