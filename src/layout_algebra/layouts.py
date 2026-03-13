@@ -1574,6 +1574,8 @@ def crd2offset(coord, shape, stride) -> int:
 
     # Case 1: Scalar shape - direct multiplication
     if is_int(shape):
+        if is_tuple(coord):
+            raise ValueError(f"Cannot map coordinate {coord} to scalar shape {shape}")
         return coord * stride
 
     # Case 2: 1D index mapping (index -> nD -> offset)
@@ -1842,7 +1844,7 @@ def shape_div(shape: Any, divisor: int) -> Any:
         shape_div(12, 3) -> 4           # 12/3 = 4
         shape_div((4, 3), 2) -> (2, 3)  # Divide first mode: 4/2=2, rest untouched
         shape_div((4, 3), 4) -> (1, 3)  # First mode consumed: 4/4=1
-        shape_div((4, 3), 8) -> (1, 2)  # Carries into second mode: 8/4=2, 3/2->2
+        shape_div((4, 6), 8) -> (1, 3)  # Carries into second mode: 8/4=2, 6/2=3
         shape_div((4, 3), 12) -> (1, 1) # All consumed
     """
     if divisor == 1:
@@ -2034,6 +2036,17 @@ def compose(layout_a: Any, layout_b: Any) -> Any:
 
     # Layout-with-Layout composition
     if isinstance(layout_b, Layout):
+        if layout_b._swizzle is not None:
+            # CuTe C++: compose(A, Swizzle o B) = NewSwizzle o compose(A, B)
+            # where NewSwizzle = make_swizzle(A(yyy_msk), A(zzz_msk))
+            # See layout_composed.hpp:379 and swizzle_layout.hpp:327
+            swz = layout_b._swizzle
+            active_Y = layout_a(swz.yyy_msk)
+            active_Z = layout_a(swz.zzz_msk)
+            new_swizzle = make_swizzle(active_Y, active_Z)
+            inner_b = Layout(layout_b.shape, layout_b.stride)  # strip swizzle
+            composed = _compose_layouts(layout_a, inner_b)
+            return Layout(composed.shape, composed.stride, swizzle=new_swizzle)
         return _compose_layouts(layout_a, layout_b)
 
     # Tiler composition (Tile or tuple)
@@ -2180,13 +2193,13 @@ def _logical_divide_by_shape(layout: Layout, tiler_shape: Any) -> Layout:
         elif tile_size <= mode_size:
             rest_size = mode_size // tile_size
             result_shapes.append((tile_size, rest_size))
-            result_strides.append((d, d * tile_size))
+            result_strides.append((d, elem_scale(d, tile_size)))
         else:
             tile_part = compose(Layout(s, d), Layout(tile_size, 1))
             tile_s = unwrap(tile_part.shape) if is_tuple(tile_part.shape) else tile_part.shape
             tile_d = unwrap(tile_part.stride) if is_tuple(tile_part.stride) else tile_part.stride
             result_shapes.append((tile_s, 1))
-            result_strides.append((tile_d, d * mode_size))
+            result_strides.append((tile_d, elem_scale(d, mode_size)))
 
     # Use as_shape to unwrap single-element results back to scalar form
     return Layout(as_shape(result_shapes), as_shape(result_strides))
@@ -2787,6 +2800,16 @@ class Swizzle:
             return False
         return self.bits == other.bits and self.base == other.base and self.shift == other.shift
 
+    @property
+    def yyy_msk(self) -> int:
+        """Bit mask for the Y (source) bits of the swizzle."""
+        return ((1 << self.bits) - 1) << (self.base + max(0, self.shift))
+
+    @property
+    def zzz_msk(self) -> int:
+        """Bit mask for the Z (destination) bits of the swizzle."""
+        return ((1 << self.bits) - 1) << (self.base + max(0, -self.shift))
+
     def __call__(self, idx: int) -> int:
         """Apply the swizzle to an index."""
         # Create mask for 'bits' number of bits at position 'base'
@@ -2800,3 +2823,32 @@ class Swizzle:
             # Negative shift: XOR lower bits into higher bits
             # Extract bits from [base, base+bits), shift left, XOR into higher position
             return idx ^ ((idx & mask) << (-self.shift))
+
+
+def make_swizzle(Y: int, Z: int):
+    """Create a Swizzle from Y and Z bit positions.
+
+    Given bit masks Y and Z indicating which bits interact, construct
+    the Swizzle(bits, base, shift) that performs the corresponding XOR.
+
+    Matches CuTe C++ make_swizzle<Y,Z>() in swizzle.hpp.
+
+    Args:
+        Y: Bit mask for the Y (source) bits
+        Z: Bit mask for the Z (destination) bits
+
+    Returns:
+        A Swizzle, or None if both masks are zero (identity).
+    """
+    num_bits = bin(Y).count("1")
+    assert num_bits == bin(Z).count("1"), (
+        f"make_swizzle: bit count mismatch: popcount({Y:#b})={num_bits} "
+        f"vs popcount({Z:#b})={bin(Z).count('1')}"
+    )
+    if num_bits == 0:
+        return None  # Identity swizzle
+    tz_y = (Y & -Y).bit_length() - 1  # countr_zero(Y)
+    tz_z = (Z & -Z).bit_length() - 1  # countr_zero(Z)
+    base = min(tz_y, tz_z)
+    shift = tz_y - tz_z
+    return Swizzle(num_bits, base, shift)
