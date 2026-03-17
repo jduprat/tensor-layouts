@@ -1835,6 +1835,13 @@ def safe_div(a: int, b: int) -> int:
 def shape_div(shape: Any, divisor: int) -> Any:
     """Divide a shape by a divisor, consuming from the innermost modes first.
 
+    Intuition: shape_div and shape_mod together factor a shape into two
+    pieces — the part consumed by the divisor (shape_mod) and the part
+    that remains (shape_div). They are the hierarchical analog of
+    integer divmod, respecting CuTe's column-major (leftmost-fastest)
+    convention: divisors consume from the innermost (leftmost) modes
+    first, then carry to outer modes.
+
     shape_div is to hierarchical shapes what integer division is to integers.
     It divides the shape element-by-element from left to right (innermost first
     in CuTe's column-major convention). When the divisor exceeds a mode's size,
@@ -1843,7 +1850,7 @@ def shape_div(shape: Any, divisor: int) -> Any:
     For scalars: shape_div(a, b) = ceil(a / b), which equals a/b when b|a
     and 1 when a|b (i.e., a/gcd(a,b) when one divides the other).
 
-    The key identity: shape_div(s, d) * shape_mod(s, d) == size(s)
+    The key identity: size(shape_div(s, d)) * size(shape_mod(s, d)) == size(s)
 
     Examples:
         shape_div(12, 4) -> 3           # 12/4 = 3
