@@ -72,6 +72,21 @@ import numpy as np
 
 from .layouts import *
 
+__all__ = [
+    # draw_* (save to file or display inline)
+    "draw_layout", "draw_swizzle", "draw_slice",
+    "draw_tv_layout", "draw_mma_layout",
+    "draw_tiled_grid", "draw_combined_mma_grid",
+    "draw_copy_layout", "draw_composite",
+    # show_* (return matplotlib Figure)
+    "show_layout", "show_swizzle", "show_slice",
+    "show_tv_layout", "show_mma_layout",
+    "show_tiled_grid", "show_combined_mma_grid",
+    "show_copy_layout", "show_composite",
+    # Demo
+    "demo",
+]
+
 
 # =============================================================================
 # Color palettes and utilities

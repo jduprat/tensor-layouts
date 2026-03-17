@@ -68,6 +68,47 @@ except ImportError:
 # Tuple of int | tuple
 IntOrIntTuple = Union[int, tuple["IntOrIntTuple", ...]]
 
+__all__ = [
+    # Type alias
+    "IntOrIntTuple",
+    # Type predicates
+    "is_tuple", "is_int", "is_scalar", "is_iterable", "is_layout",
+    "is_pure_shape", "has_none",
+    # Shape conversions
+    "as_tuple", "as_shape", "unwrap", "normalize",
+    # Core types
+    "Layout", "Tile", "Swizzle", "make_swizzle",
+    # Stride computation
+    "compute_col_major_strides", "compute_row_major_strides",
+    # Query functions
+    "size", "cosize", "rank", "depth", "mode",
+    # Tuple operations
+    "concat", "congruent", "compatible",
+    "tuple_max", "transform_tuple", "zip_transform",
+    "fold", "fold_accumulate", "elem_scale", "inner_product",
+    "prefix_product", "suffix_product", "product_each",
+    # Layout manipulation
+    "append", "prepend", "replace", "group",
+    "flatten", "unflatten", "sort", "coalesce",
+    # Coordinate conversion
+    "idx2crd", "crd2flat", "crd2offset", "crd2idx", "crd2crd",
+    "slice_modes", "dice_modes", "slice_and_offset",
+    # Core algebra
+    "compose", "complement", "logical_divide", "logical_product",
+    # Division variants
+    "zipped_divide", "tiled_divide", "flat_divide",
+    # Product variants
+    "zipped_product", "tiled_product", "hier_unzip",
+    "blocked_product", "raked_product", "flat_product",
+    # Inverse and related
+    "right_inverse", "left_inverse", "nullspace",
+    "max_common_layout", "max_common_vector",
+    # Shape arithmetic
+    "safe_div", "shape_div", "shape_mod",
+    # Upcast / downcast
+    "upcast", "downcast",
+]
+
 
 # =============================================================================
 # Type predicates
