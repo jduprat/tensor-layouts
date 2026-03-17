@@ -1858,7 +1858,8 @@ def shape_div(shape: Any, divisor: int) -> Any:
 
     def _scalar(s, d):
         assert s % d == 0 or d % s == 0, (
-            f"shape_div({s}, {d}): requires a % b == 0 or b % a == 0"
+            f"shape_div({s}, {d}): one must divide the other for clean "
+            f"factorization"
         )
         return (s + d - 1) // d
 
