@@ -89,7 +89,7 @@ def is_int(x) -> bool:
 
 def is_scalar(x) -> bool:
     """Check if x represents a scalar shape (int, not tuple)."""
-    return isinstance(x, int)
+    return is_int(x)
 
 
 def is_iterable(x) -> bool:
