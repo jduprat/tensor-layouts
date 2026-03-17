@@ -71,6 +71,7 @@ from matplotlib.textpath import TextToPath
 import numpy as np
 
 from .layouts import *
+from .tensor import Tensor
 
 __all__ = [
     # draw_* (save to file or display inline)
@@ -236,7 +237,8 @@ class OffsetGrid:
 
 def _prepare_offset_grid(layout, color_layout=None,
                          slice_spec=None,
-                         hierarchical: bool = False) -> OffsetGrid:
+                         hierarchical: bool = False,
+                         eval_fn=None) -> OffsetGrid:
     """Extract all visualization data from a layout into an OffsetGrid.
 
     Args:
@@ -244,6 +246,8 @@ def _prepare_offset_grid(layout, color_layout=None,
         color_layout: Optional layout controlling cell coloring.
         slice_spec: Optional slice specification for highlight mask.
         hierarchical: If True, extract hierarchical cell coordinates.
+        eval_fn: Callable mapping coordinates to offset values. Defaults to
+            layout.__call__. Pass tensor.__call__ for Tensor visualization.
     """
     cell_coords = None
     row_shape = None
@@ -260,10 +264,10 @@ def _prepare_offset_grid(layout, color_layout=None,
             # structure doesn't decompose cleanly into 2D row/col modes
             # (e.g., rank-1 layouts, deeply nested shapes).  Fall back to
             # flat offset display which works for any layout.
-            indices = _get_indices_2d(layout)
+            indices = _get_indices_2d(layout, eval_fn=eval_fn)
             hierarchical = False
     else:
-        indices = _get_indices_2d(layout)
+        indices = _get_indices_2d(layout, eval_fn=eval_fn)
 
     color_indices = _get_color_indices_2d(layout, color_layout)
 
@@ -298,14 +302,21 @@ def _is_dark(hex_color: str) -> bool:
 # Index extraction
 # =============================================================================
 
-def _get_indices_2d(layout) -> np.ndarray:
+def _get_indices_2d(layout, eval_fn=None) -> np.ndarray:
     """Extract offset indices from layout as a displayed 2D grid.
 
     For ordinary rank-2 layouts, displayed cell (row, col) corresponds to the
     logical coordinate (row, col), with hierarchical sub-modes flattened within
     each top-level mode. This keeps visualization semantics aligned with the
     usual matrix interpretation used throughout the docs and examples.
+
+    Args:
+        layout: Layout whose shape determines the grid dimensions.
+        eval_fn: Callable mapping coordinates to offset values. Defaults to
+            layout.__call__. Pass tensor.__call__ for Tensor visualization.
     """
+    if eval_fn is None:
+        eval_fn = layout
     r = rank(layout)
     total = size(layout)
 
@@ -326,11 +337,11 @@ def _get_indices_2d(layout) -> np.ndarray:
             row_coord = idx2crd(i, row_shape)
             for j in range(cols):
                 col_coord = idx2crd(j, col_shape)
-                indices[i, j] = layout(row_coord, col_coord)
+                indices[i, j] = eval_fn(row_coord, col_coord)
     else:
         for i in range(total):
             coord = idx2crd(i, layout.shape)
-            indices[0, i] = layout(coord)
+            indices[0, i] = eval_fn(coord)
 
     return indices
 
@@ -599,6 +610,12 @@ def _build_composite_figure(panels: list,
             layout = panel
             opts = {}
 
+        # Unwrap Tensor for offset-grid rendering
+        eval_fn = None
+        if isinstance(layout, Tensor):
+            eval_fn = layout.__call__
+            layout = layout.layout
+
         # Merge with defaults
         panel_colorize = opts.get('colorize', colorize)
         panel_tv_mode = opts.get('tv_mode', tv_mode)
@@ -613,7 +630,8 @@ def _build_composite_figure(panels: list,
             _draw_tv_grid(ax, layout, title=title,
                           colorize=panel_colorize, num_colors=num_colors)
         else:
-            grid = _prepare_offset_grid(layout, color_layout=color_layout)
+            grid = _prepare_offset_grid(layout, color_layout=color_layout,
+                                        eval_fn=eval_fn)
             _draw_grid(ax, grid.indices, title=title,
                        colorize=panel_colorize,
                        color_indices=grid.color_indices,
@@ -1183,7 +1201,20 @@ def _build_layout_figure(layout,
                          num_colors: int = 8,
                          flatten_hierarchical: bool = True,
                          label_hierarchy_levels: bool = False):
-    """Build the layout figure used by draw_layout/show_layout."""
+    """Build the layout figure used by draw_layout/show_layout.
+
+    Accepts Layout or Tensor. When given a Tensor, cells display offset-adjusted
+    values and the default title includes the base offset.
+    """
+    # Unwrap Tensor: use its layout for shape/structure, its __call__ for values
+    eval_fn = None
+    if isinstance(layout, Tensor):
+        tensor = layout
+        eval_fn = tensor.__call__
+        layout = tensor.layout
+        if title is None:
+            title = repr(tensor)
+
     # Check if this is a hierarchical layout (has nested tuple shapes)
     r = rank(layout)
     is_hierarchical = (r == 2 and
@@ -1192,7 +1223,8 @@ def _build_layout_figure(layout,
 
     want_hierarchical = is_hierarchical and not flatten_hierarchical
     grid = _prepare_offset_grid(layout, color_layout=color_layout,
-                                hierarchical=want_hierarchical)
+                                hierarchical=want_hierarchical,
+                                eval_fn=eval_fn)
 
     if figsize is None:
         if grid.is_hierarchical:
@@ -1234,10 +1266,11 @@ def draw_layout(layout, filename=None,
                 num_colors: int = 8,
                 flatten_hierarchical: bool = True,
                 label_hierarchy_levels: bool = False):
-    """Draw a layout and save to file.
+    """Draw a layout or tensor and save to file.
 
     Args:
-        layout: Layout object to visualize
+        layout: Layout or Tensor to visualize. When given a Tensor, cells
+            display offset-adjusted values and the title includes the base offset.
         filename: Output path (.svg, .png, or .pdf)
         title: Optional title (defaults to layout repr)
         dpi: Resolution for raster formats
@@ -2130,10 +2163,11 @@ def show_layout(layout, title: Optional[str] = None,
                 num_colors: int = 8,
                 flatten_hierarchical: bool = True,
                 label_hierarchy_levels: bool = False):
-    """Display a layout inline (for Jupyter notebooks).
+    """Display a layout or tensor inline (for Jupyter notebooks).
 
     Args:
-        layout: Layout object to visualize
+        layout: Layout or Tensor to visualize. When given a Tensor, cells
+            display offset-adjusted values and the title includes the base offset.
         title: Optional title
         figsize: Figure size in inches
         colorize: If True, use rainbow colors for distinct cells

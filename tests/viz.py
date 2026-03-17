@@ -26,6 +26,7 @@ import tempfile
 import pytest
 
 from layout_algebra import Layout, Swizzle
+from layout_algebra.tensor import Tensor
 from layout_algebra.layouts import mode
 from layout_algebra.atoms_amd import (
     CDNA3P_16x16x32_F32F16F16_MFMA,
@@ -132,6 +133,58 @@ def test_show_swizzle_returns_figure_without_raising():
     try:
         assert isinstance(fig, matplotlib.figure.Figure)
         assert len(fig.axes) == 2
+    finally:
+        plt.close(fig)
+
+
+@requires_viz
+def test_show_layout_accepts_tensor():
+    """draw_layout/show_layout accept Tensor and display offset-adjusted values."""
+    layout = Layout((4, 8), (8, 1))
+    tensor = Tensor(layout, offset=16)
+    fig = show_layout(tensor)
+    try:
+        assert isinstance(fig, matplotlib.figure.Figure)
+        # Cell (0,0) at position (0.5, 0.5) should show 16 (offset), not 0
+        ax = fig.axes[0]
+        cell_texts = {
+            (round(t.get_position()[0], 1), round(t.get_position()[1], 1)): t.get_text()
+            for t in ax.texts
+            if t.get_position()[0] > 0 and t.get_position()[1] > 0
+        }
+        assert cell_texts[(0.5, 0.5)] == "16"
+    finally:
+        plt.close(fig)
+
+
+@requires_viz
+def test_show_layout_tensor_zero_offset():
+    """Tensor with offset=0 produces same values as bare Layout."""
+    layout = Layout((4, 4), (4, 1))
+    tensor = Tensor(layout, offset=0)
+    fig_layout = show_layout(layout)
+    fig_tensor = show_layout(tensor)
+    try:
+        def _cell_values(fig):
+            ax = fig.axes[0]
+            return sorted(
+                [(t.get_position(), t.get_text()) for t in ax.texts if t.get_text().isdigit()],
+            )
+        assert _cell_values(fig_layout) == _cell_values(fig_tensor)
+    finally:
+        plt.close(fig_layout)
+        plt.close(fig_tensor)
+
+
+@requires_viz
+def test_show_layout_swizzled_tensor():
+    """Swizzled Tensor renders without error."""
+    sw = Swizzle(3, 0, 3)
+    layout = Layout((8, 8), (8, 1), swizzle=sw)
+    tensor = Tensor(layout, offset=0)
+    fig = show_layout(tensor)
+    try:
+        assert isinstance(fig, matplotlib.figure.Figure)
     finally:
         plt.close(fig)
 
