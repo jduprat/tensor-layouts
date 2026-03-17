@@ -49,6 +49,7 @@ Requirements:
     pip install matplotlib numpy
 """
 
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional, Set, Tuple
 
@@ -63,6 +64,8 @@ if matplotlib.get_backend() == 'agg' or not hasattr(matplotlib, '_called_from_ju
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import matplotlib.transforms as mtransforms
+from matplotlib.font_manager import FontProperties
+from matplotlib.textpath import TextToPath
 import numpy as np
 
 from .layouts import *
@@ -601,6 +604,65 @@ def _hierarchy_level_color(level: int) -> str:
     return HIERARCHY_LEVEL_COLORS[(level - 1) % len(HIERARCHY_LEVEL_COLORS)]
 
 
+def _draw_hierarchy_boundary_lines(ax,
+                                   rows: int,
+                                   cols: int,
+                                   row_block_sizes: tuple[int, ...],
+                                   col_block_sizes: tuple[int, ...],
+                                   zorder_base: float = 4):
+    """Draw hierarchy boundary lines over a displayed grid.
+
+    Boundary lines are drawn from finest to coarsest so coarser levels sit
+    above finer ones at intersections. Perimeter strokes are included for
+    each hierarchy level beyond level 0, which gives edge tiles full colored
+    boxes rather than only internal separators.
+    """
+    n_row_levels = len(row_block_sizes)
+    n_col_levels = len(col_block_sizes)
+
+    def _is_shadowed_by_coarser(level: int, pos: int, block_sizes: tuple[int, ...]) -> bool:
+        """Return True if a same-orientation coarser hierarchy line also sits at pos."""
+        for coarser_level in range(level + 1, len(block_sizes)):
+            coarser_block = block_sizes[coarser_level]
+            if coarser_block > 0 and pos % coarser_block == 0:
+                return True
+        return False
+
+    def _draw_boundary_line(x0: float, y0: float, x1: float, y1: float,
+                            color: str, linewidth: float, zorder: float):
+        """Draw a hierarchy boundary segment with consistent stroke caps."""
+        ax.plot([x0, x1], [y0, y1], color=color, linewidth=linewidth,
+                zorder=zorder, solid_capstyle='butt')
+
+    max_levels = max(n_row_levels, n_col_levels)
+
+    for level in range(1, max_levels):
+        color = HIERARCHY_LEVEL_COLORS[(level - 1) % len(HIERARCHY_LEVEL_COLORS)]
+        linewidth = 2.0 + 1.2 * (level - 1)
+        zorder = zorder_base + level
+
+        # Always draw a full perimeter for levels present on either axis so
+        # asymmetric hierarchies still produce closed colored boxes.
+        _draw_boundary_line(0, 0, cols, 0, color, linewidth, zorder)
+        _draw_boundary_line(0, rows, cols, rows, color, linewidth, zorder)
+        _draw_boundary_line(0, 0, 0, rows, color, linewidth, zorder)
+        _draw_boundary_line(cols, 0, cols, rows, color, linewidth, zorder)
+
+        if level < n_row_levels:
+            block_size = row_block_sizes[level]
+            for i in range(block_size, rows, block_size):
+                if _is_shadowed_by_coarser(level, i, row_block_sizes):
+                    continue
+                _draw_boundary_line(0, i, cols, i, color, linewidth, zorder)
+
+        if level < n_col_levels:
+            block_size = col_block_sizes[level]
+            for j in range(block_size, cols, block_size):
+                if _is_shadowed_by_coarser(level, j, col_block_sizes):
+                    continue
+                _draw_boundary_line(j, 0, j, rows, color, linewidth, zorder)
+
+
 def _format_hierarchical_cell_lines(row_coord, col_coord, offset: int) -> tuple[str, str, str]:
     """Format pedagogical hierarchical cell labels.
 
@@ -616,6 +678,124 @@ def _format_hierarchical_cell_lines(row_coord, col_coord, offset: int) -> tuple[
     )
 
 
+@lru_cache(maxsize=None)
+def _measure_text_width_pts(text: str, fontsize: float,
+                            family: str = 'sans-serif',
+                            weight: str = 'normal') -> float:
+    """Return rendered text width in points using advance widths."""
+    if not text:
+        return 0.0
+    fontprops = FontProperties(family=family, weight=weight, size=fontsize)
+    w, _, _ = TextToPath().get_text_width_height_descent(text, fontprops, ismath=False)
+    return w
+
+
+def _hierarchical_label_margins(n_row_levels: int, n_col_levels: int,
+                                label_hierarchy_levels: bool,
+                                row_label_band_spacing: float = 1.2,
+                                col_label_band_spacing: float = 0.8
+                                ) -> tuple[float, float, float, float]:
+    """Return margins and corner gaps for hierarchical axis labels."""
+    corner_gap_x = 0.0
+    corner_gap_y = 0.0
+    if not label_hierarchy_levels:
+        return 0.9, 0.9, corner_gap_x, corner_gap_y
+
+    # Reserve a corner gap so the row[...] and col[...] label bands do not
+    # crowd each other at the top-left corner for asymmetric hierarchies.
+    corner_gap_x = 0.45 + 0.10 * max(n_col_levels - 1, 0)
+    corner_gap_y = 0.45 + 0.10 * max(n_row_levels - 1, 0)
+    left_margin = 0.9 + corner_gap_x + row_label_band_spacing * max(n_row_levels, 0)
+    top_margin = 0.9 + corner_gap_y + col_label_band_spacing * max(n_col_levels, 0)
+    return left_margin, top_margin, corner_gap_x, corner_gap_y
+
+
+def _auto_hierarchical_figsize(layout, indices: np.ndarray, rows: int, cols: int,
+                               label_hierarchy_levels: bool) -> Tuple[float, float]:
+    """Estimate a readable default figure size for nested hierarchical views."""
+    row_shape = mode(layout.shape, 0)
+    col_shape = mode(layout.shape, 1)
+    n_row_levels = len(_level_block_sizes(row_shape))
+    n_col_levels = len(_level_block_sizes(col_shape))
+    left_margin, top_margin, _, _ = _hierarchical_label_margins(
+        n_row_levels, n_col_levels, label_hierarchy_levels
+    )
+
+    max_levels = max(n_row_levels, n_col_levels, 1)
+    coord_fontsize = max(3.2, 5.5 - 0.45 * (max_levels - 1))
+    offset_fontsize = coord_fontsize
+
+    max_row_width_pts = max(
+        (
+            _measure_text_width_pts(
+                f"row={_format_nested_coord(idx2crd(i, row_shape))}",
+                coord_fontsize,
+                family='monospace',
+            )
+            for i in range(rows)
+        ),
+        default=0.0,
+    )
+    max_col_width_pts = max(
+        (
+            _measure_text_width_pts(
+                f"col={_format_nested_coord(idx2crd(j, col_shape))}",
+                coord_fontsize,
+                family='monospace',
+            )
+            for j in range(cols)
+        ),
+        default=0.0,
+    )
+    offset_width_pts = _measure_text_width_pts(
+        "offset=", offset_fontsize, family='monospace'
+    ) + max(
+        (
+            _measure_text_width_pts(
+                str(int(idx)),
+                offset_fontsize,
+                family='monospace',
+                weight='bold',
+            )
+            for idx in indices.flat
+        ),
+        default=0.0,
+    )
+
+    widest_content_pts = max(max_row_width_pts, max_col_width_pts, offset_width_pts)
+
+    # Cell text starts at x=0.12 within the cell. Size the figure so that the
+    # widest in-cell line plus a small right margin fits within the remaining
+    # 88% of the cell width, after accounting for Matplotlib's default subplot
+    # margins and the extra hierarchical label bands.
+    right_padding_pts = 2.0
+    required_cell_width_pts = (widest_content_pts + right_padding_pts) / 0.88
+
+    line_height_pts = max(coord_fontsize, offset_fontsize) * 1.15
+    required_cell_height_pts = max(
+        (line_height_pts + 0.5) / 0.28,
+        (line_height_pts + 0.5) / 0.22,
+    )
+
+    scale_pts = max(required_cell_width_pts, required_cell_height_pts)
+    subplot_width_frac = (
+        matplotlib.rcParams['figure.subplot.right']
+        - matplotlib.rcParams['figure.subplot.left']
+    )
+    subplot_height_frac = (
+        matplotlib.rcParams['figure.subplot.top']
+        - matplotlib.rcParams['figure.subplot.bottom']
+    )
+    total_x_range = cols + 0.5 + left_margin
+    total_y_range = rows + 0.5 + top_margin
+
+    fig_width = scale_pts * total_x_range / (72.0 * subplot_width_frac)
+    fig_height = scale_pts * total_y_range / (72.0 * subplot_height_frac)
+    fig_width = max(fig_width, cols * 0.8 + 1.0)
+    fig_height = max(fig_height, rows * 0.8 + 1.0)
+    return fig_width, fig_height
+
+
 def _draw_colored_coord_line(ax, x: float, y: float, prefix: str, coord,
                              base_color: str, fontsize: float,
                              use_level_colors: bool):
@@ -624,10 +804,9 @@ def _draw_colored_coord_line(ax, x: float, y: float, prefix: str, coord,
     When enabled, the scalar coordinate components use the same colors as the
     corresponding hierarchy-level margin labels/boundaries.
 
-    This helper lays out colored coordinate components using point offsets and
-    an approximate monospace character width (`fontsize * 0.58`). That is a
-    practical heuristic for pedagogical diagrams, but it is not exact text
-    measurement and may vary slightly across renderers/platforms.
+    This helper lays out colored coordinate components using measured
+    monospace text widths in point offsets so the mixed-color pieces remain
+    aligned across raster and SVG outputs.
     """
     levels = _coord_levels(coord)
     pieces = [(f"{prefix}=(", base_color)]
@@ -638,8 +817,6 @@ def _draw_colored_coord_line(ax, x: float, y: float, prefix: str, coord,
             pieces.append((",", base_color))
     pieces.append((")", base_color))
 
-    # Left-align within the cell using monospace character widths in point offsets.
-    char_width_pts = fontsize * 0.58
     offset_pts = 0
     for text, color in pieces:
         trans = mtransforms.offset_copy(ax.transData, fig=ax.figure,
@@ -647,7 +824,7 @@ def _draw_colored_coord_line(ax, x: float, y: float, prefix: str, coord,
         ax.text(x, y, text, transform=trans,
                 ha='left', va='center', fontsize=fontsize,
                 color=color, family='monospace')
-        offset_pts += len(text) * char_width_pts
+        offset_pts += _measure_text_width_pts(text, fontsize, family='monospace')
 
 
 def _get_hierarchical_cell_coords_2d(layout) -> np.ndarray:
@@ -713,13 +890,15 @@ def _draw_hierarchical_grid(ax, layout,
     else:
         colors = _make_grayscale_palette(num_shades)
 
-    if flatten_hierarchical or not label_hierarchy_levels:
-        left_margin = 0.9
-        top_margin = 0.9
-    else:
-        # One label band per hierarchical level beyond the fastest-varying one.
-        left_margin = 0.9 + 1.0 * max(n_row_levels, 0)
-        top_margin = 0.9 + 0.7 * max(n_col_levels, 0)
+    row_label_band_spacing = 1.2
+    col_label_band_spacing = 0.8
+    left_margin, top_margin, corner_gap_x, corner_gap_y = _hierarchical_label_margins(
+        n_row_levels,
+        n_col_levels,
+        label_hierarchy_levels=(not flatten_hierarchical and label_hierarchy_levels),
+        row_label_band_spacing=row_label_band_spacing,
+        col_label_band_spacing=col_label_band_spacing,
+    )
     ax.set_xlim(-left_margin, cols + 0.5)
     ax.set_ylim(-top_margin, rows + 0.5)
     ax.set_aspect('equal')
@@ -732,6 +911,8 @@ def _draw_hierarchical_grid(ax, layout,
     max_levels = max(n_row_levels, n_col_levels, 1)
     coord_fontsize = max(3.2, 5.5 - 0.45 * (max_levels - 1))
     offset_fontsize = coord_fontsize
+    row_axis_label_fontsize = max(5.0, min(6.5, 56.0 / max(rows, 1)))
+    col_axis_label_fontsize = max(4.0, min(6.0, 48.0 / max(cols, 1)))
 
     for i in range(rows):
         for j in range(cols):
@@ -777,51 +958,25 @@ def _draw_hierarchical_grid(ax, layout,
                     text_color, coord_fontsize, use_level_colors=label_hierarchy_levels
                 )
                 offset_label, offset_value = off_line.split("=", 1)
-                ax.text(x_left, i + 0.78, f"{offset_label}=",
+                offset_label_text = f"{offset_label}="
+                ax.text(x_left, i + 0.78, offset_label_text,
                         ha='left', va='center', fontsize=offset_fontsize, color=text_color,
                         family='monospace')
-                offset_label_pts = len(f"{offset_label}=") * offset_fontsize * 0.58
+                offset_label_pts = _measure_text_width_pts(
+                    offset_label_text, offset_fontsize, family='monospace'
+                )
                 trans = mtransforms.offset_copy(ax.transData, fig=ax.figure,
-                                                x=offset_label_pts, y=0, units='points')
+                                                x=offset_label_pts,
+                                                y=0, units='points')
                 ax.text(x_left, i + 0.78, offset_value, transform=trans,
                         ha='left', va='center', fontsize=offset_fontsize,
                         color=text_color, fontweight='bold', family='monospace')
 
     # Draw blue tile boundary lines for nested view
     if not flatten_hierarchical:
-        def _is_shadowed_by_coarser(level: int, pos: int, block_sizes: tuple[int, ...]) -> bool:
-            """Return True if a same-orientation coarser hierarchy line also sits at pos."""
-            for coarser_level in range(level + 1, len(block_sizes)):
-                coarser_block = block_sizes[coarser_level]
-                if coarser_block > 0 and pos % coarser_block == 0:
-                    return True
-            return False
-
-        # Horizontal boundaries for each hierarchy level beyond the
-        # fastest-varying one. Draw from coarsest to finest so intersections
-        # are colored by the finest granularity present there, while the
-        # thicker coarser lines remain underneath.
-        for level in reversed(range(1, n_row_levels)):
-            block_size = row_block_sizes[level]
-            color = HIERARCHY_LEVEL_COLORS[(level - 1) % len(HIERARCHY_LEVEL_COLORS)]
-            linewidth = 2.0 + 1.2 * (level - 1)
-            for i in range(block_size, rows, block_size):
-                if _is_shadowed_by_coarser(level, i, row_block_sizes):
-                    continue
-                ax.plot([0, cols], [i, i], color=color, linewidth=linewidth,
-                        zorder=4 + (n_row_levels - level))
-        # Vertical boundaries for each hierarchy level beyond the
-        # fastest-varying one. Draw from coarsest to finest for the same
-        # reason as horizontal boundaries.
-        for level in reversed(range(1, n_col_levels)):
-            block_size = col_block_sizes[level]
-            color = HIERARCHY_LEVEL_COLORS[(level - 1) % len(HIERARCHY_LEVEL_COLORS)]
-            linewidth = 2.0 + 1.2 * (level - 1)
-            for j in range(block_size, cols, block_size):
-                if _is_shadowed_by_coarser(level, j, col_block_sizes):
-                    continue
-                ax.plot([j, j], [0, rows], color=color, linewidth=linewidth,
-                        zorder=4 + (n_col_levels - level))
+        _draw_hierarchy_boundary_lines(
+            ax, rows, cols, row_block_sizes, col_block_sizes, zorder_base=4
+        )
 
     if show_labels:
         if not flatten_hierarchical and label_hierarchy_levels:
@@ -830,22 +985,22 @@ def _draw_hierarchical_grid(ax, layout,
             for level in range(n_row_levels):
                 block_size = row_block_sizes[level]
                 color = _hierarchy_level_color(level)
-                x = -0.55 - 1.0 * level
+                x = -0.55 - corner_gap_x - row_label_band_spacing * level
                 for start in range(0, rows, block_size):
                     center = start + block_size / 2
                     value = _coord_levels(idx2crd(start, row_shape))[level]
                     ax.text(x, center, f"row[{level}]={value}",
-                            ha='center', va='center', fontsize=7,
+                            ha='center', va='center', fontsize=row_axis_label_fontsize,
                             color=color, fontweight='bold')
             for level in range(n_col_levels):
                 block_size = col_block_sizes[level]
                 color = _hierarchy_level_color(level)
-                y = -0.55 - 0.7 * level
+                y = -0.55 - corner_gap_y - col_label_band_spacing * level
                 for start in range(0, cols, block_size):
                     center = start + block_size / 2
                     value = _coord_levels(idx2crd(start, col_shape))[level]
                     ax.text(center, y, f"col[{level}]={value}",
-                            ha='center', va='center', fontsize=7,
+                            ha='center', va='center', fontsize=col_axis_label_fontsize,
                             color=color, fontweight='bold')
         else:
             # Single-level labels
@@ -915,9 +1070,13 @@ def draw_layout(layout, filename=None,
     color_indices = _get_color_indices_2d(layout, color_layout)
 
     if figsize is None:
-        # Larger cells for nested coordinate display
-        cell_scale = 0.8 if (is_hierarchical and not flatten_hierarchical) else 0.5
-        figsize = (cols * cell_scale + 1, rows * cell_scale + 1)
+        if is_hierarchical and not flatten_hierarchical:
+            figsize = _auto_hierarchical_figsize(
+                layout, indices, rows, cols, label_hierarchy_levels
+            )
+        else:
+            cell_scale = 0.5
+            figsize = (cols * cell_scale + 1, rows * cell_scale + 1)
 
     fig, ax = plt.subplots(figsize=figsize)
 

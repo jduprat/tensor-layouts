@@ -20,6 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from collections import defaultdict
 import tempfile
 
 import pytest
@@ -39,6 +40,8 @@ from layout_algebra.layout_utils import tile_mma_grid
 try:
     import matplotlib.figure
     import matplotlib.pyplot as plt
+    from matplotlib.colors import to_rgba
+    from matplotlib.transforms import Bbox
     import layout_algebra.viz as viz_mod
     from layout_algebra.viz import (
         _build_swizzle_figure,
@@ -158,6 +161,24 @@ def test_draw_mma_layout_smoke(atom):
 
 
 @requires_viz
+def test_draw_mma_layout_raises_for_incompatible_panel_shape():
+    a_layout = Layout((2, 2), (1, 2))
+    b_layout = Layout((2, 1), (1, 0))
+    c_layout = Layout((2, 2), (1, 2))
+
+    try:
+        with pytest.raises(ValueError, match=r"A .*panel shape .*out of bounds"):
+            draw_mma_layout(
+                a_layout,
+                b_layout,
+                c_layout,
+                tile_mnk=(2, 2, 1),
+            )
+    finally:
+        plt.close("all")
+
+
+@requires_viz
 @pytest.mark.parametrize("atom", MIXED_VIZ_ATOMS, ids=lambda a: a.name)
 def test_draw_tiled_grid_smoke(atom):
     atom_layout = Layout((2, 2), (1, 2))
@@ -248,6 +269,7 @@ def test_get_color_indices_2d_uniform_layout_is_uniform():
     ]
 
 
+@requires_viz
 def test_get_color_indices_2d_1d_layout_is_not_treated_as_uniform():
     layout = Layout(4, 1)
     color_layout = Layout(4, 1)
@@ -255,6 +277,51 @@ def test_get_color_indices_2d_1d_layout_is_not_treated_as_uniform():
     assert color_indices.tolist() == [[0, 1, 2, 3]]
 
 
+@requires_viz
+def test_get_hierarchical_cell_coords_2d_preserves_nested_coordinates():
+    layout = Layout(((2, 3), (2, 4)), ((1, 6), (2, 12)))
+    coords = _get_hierarchical_cell_coords_2d(layout)
+    assert coords[0, 0] == ((0, 0), (0, 0))
+    assert coords[1, 0] == ((1, 0), (0, 0))
+    assert coords[2, 0] == ((0, 1), (0, 0))
+    assert coords[0, 1] == ((0, 0), (1, 0))
+    assert coords[0, 2] == ((0, 0), (0, 1))
+
+
+@requires_viz
+def test_format_nested_coord_formats_hierarchical_labels():
+    assert _format_nested_coord(3) == "3"
+    assert _format_nested_coord((1, 2)) == "(1,2)"
+    assert _format_nested_coord(((1, 2), 3)) == "((1,2),3)"
+
+
+@requires_viz
+def test_format_hierarchical_cell_lines_is_explicit_and_pedagogical():
+    assert _format_hierarchical_cell_lines((1, 2), (3, 4), 17) == (
+        "row=(1,2)",
+        "col=(3,4)",
+        "offset=17",
+    )
+
+
+@requires_viz
+def test_coord_levels_flattens_nested_coordinates_for_axis_labels():
+    assert _coord_levels(3) == (3,)
+    assert _coord_levels((1, 2)) == (1, 2)
+    assert _coord_levels(((1, 2), 3)) == (1, 2, 3)
+
+
+@requires_viz
+def test_level_spans_supports_three_level_hierarchy():
+    assert _level_spans((2, 3, 4)) == (2, 6, 24)
+
+
+@requires_viz
+def test_level_block_sizes_supports_three_level_hierarchy():
+    assert _level_block_sizes((2, 3, 4)) == (1, 2, 6)
+
+
+@requires_viz
 def test_draw_layout_nested_passes_color_indices_to_hierarchical_renderer(monkeypatch):
     layout = Layout(((2, 2), (2, 2)), ((1, 4), (2, 8)))
     color_layout = Layout(layout.shape, ((1, 2), (0, 0)))
@@ -302,50 +369,325 @@ def test_draw_hierarchical_grid_uses_supplied_color_indices():
         plt.close(fig)
 
 
-@requires_viz
-def test_get_hierarchical_cell_coords_2d_preserves_nested_coordinates():
-    layout = Layout(((2, 3), (2, 4)), ((1, 6), (2, 12)))
-    coords = _get_hierarchical_cell_coords_2d(layout)
-    assert coords[0, 0] == ((0, 0), (0, 0))
-    assert coords[1, 0] == ((1, 0), (0, 0))
-    assert coords[2, 0] == ((0, 1), (0, 0))
-    assert coords[0, 1] == ((0, 0), (1, 0))
-    assert coords[0, 2] == ((0, 0), (0, 1))
+def _hierarchy_line_positions(ax, color):
+    """Return horizontal/vertical hierarchy line positions for a given color."""
+    horizontal = set()
+    vertical = set()
+
+    for line in ax.lines:
+        if line.get_color() != color:
+            continue
+        x0, x1 = [float(x) for x in line.get_xdata()]
+        y0, y1 = [float(y) for y in line.get_ydata()]
+        if y0 == y1:
+            horizontal.add(y0)
+        elif x0 == x1:
+            vertical.add(x0)
+
+    return horizontal, vertical
+
+
+def _hierarchy_line_zorders(ax, color):
+    """Return zorders for hierarchy lines of a given color."""
+    return [line.get_zorder() for line in ax.lines if line.get_color() == color]
+
+
+def _label_bboxes(ax):
+    """Return rendered bounding boxes for row[...] and col[...] margin labels."""
+    fig = ax.figure
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    row_boxes = []
+    col_boxes = []
+    for text in ax.texts:
+        label = text.get_text()
+        bbox = text.get_window_extent(renderer=renderer)
+        if label.startswith("row["):
+            row_boxes.append((label, bbox))
+        elif label.startswith("col["):
+            col_boxes.append((label, bbox))
+    return row_boxes, col_boxes
+
+
+def _has_bbox_overlap(boxes):
+    """Return True if any pair of bounding boxes overlaps."""
+    for i, (_, bbox_i) in enumerate(boxes):
+        for _, bbox_j in boxes[i + 1:]:
+            if Bbox.overlaps(bbox_i, bbox_j):
+                return True
+    return False
+
+
+def _offset_label_value_bboxes(ax):
+    """Return rendered bbox pairs for each 'offset=' label and its value."""
+    fig = ax.figure
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    pairs = []
+    for i, text in enumerate(ax.texts[:-1]):
+        if text.get_text() != "offset=":
+            continue
+        value_text = ax.texts[i + 1]
+        if not value_text.get_text().lstrip("-").isdigit():
+            continue
+        pairs.append(
+            (
+                text.get_window_extent(renderer=renderer),
+                value_text.get_window_extent(renderer=renderer),
+            )
+        )
+    return pairs
+
+
+def _cell_patch_bboxes(ax):
+    """Return rendered bounding boxes for unit cell rectangles by (row, col)."""
+    fig = ax.figure
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    boxes = {}
+    for patch in ax.patches:
+        if not all(hasattr(patch, attr) for attr in ("get_x", "get_y", "get_width", "get_height")):
+            continue
+        if patch.get_width() != 1.0 or patch.get_height() != 1.0:
+            continue
+        boxes[(int(round(patch.get_y())), int(round(patch.get_x())))] = patch.get_window_extent(renderer=renderer)
+    return boxes
+
+
+def _cell_text_bboxes(ax, rows: int, cols: int):
+    """Return rendered in-cell monospace text boxes grouped by (row, col)."""
+    fig = ax.figure
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    boxes = defaultdict(list)
+    for text in ax.texts:
+        if "monospace" not in text.get_fontfamily():
+            continue
+        x, y = text.get_position()
+        if not (0.0 <= x < cols and 0.0 <= y < rows):
+            continue
+        boxes[(int(y), int(x))].append(text.get_window_extent(renderer=renderer))
+    return boxes
 
 
 @requires_viz
-def test_format_nested_coord_formats_hierarchical_labels():
-    assert _format_nested_coord(3) == "3"
-    assert _format_nested_coord((1, 2)) == "(1,2)"
-    assert _format_nested_coord(((1, 2), 3)) == "((1,2),3)"
+def test_draw_hierarchical_grid_draws_outer_perimeter_for_coarse_tiles():
+    layout = Layout(((2, 2), (2, 2)), ((1, 4), (2, 8)))
+
+    fig, ax = plt.subplots()
+    try:
+        _draw_hierarchical_grid(ax, layout, flatten_hierarchical=False)
+        blue = viz_mod.HIERARCHY_LEVEL_COLORS[0]
+        horizontal, vertical = _hierarchy_line_positions(ax, blue)
+        assert horizontal == {0.0, 2.0, 4.0}
+        assert vertical == {0.0, 2.0, 4.0}
+    finally:
+        plt.close(fig)
 
 
 @requires_viz
-def test_format_hierarchical_cell_lines_is_explicit_and_pedagogical():
-    assert _format_hierarchical_cell_lines((1, 2), (3, 4), 17) == (
-        "row=(1,2)",
-        "col=(3,4)",
-        "offset=17",
+def test_draw_hierarchical_grid_cecka_hier_col_margin_labels_do_not_overlap():
+    layout = Layout((4, (4, 2)), (4, (1, 16)))
+
+    fig, ax = plt.subplots(figsize=(8 * 0.8 + 1, 4 * 0.8 + 1))
+    try:
+        _draw_hierarchical_grid(ax, layout, flatten_hierarchical=False,
+                                label_hierarchy_levels=True)
+        row_boxes, col_boxes = _label_bboxes(ax)
+        assert row_boxes
+        assert col_boxes
+        assert not _has_bbox_overlap(row_boxes)
+        assert not _has_bbox_overlap(col_boxes)
+    finally:
+        plt.close(fig)
+
+
+@requires_viz
+def test_draw_hierarchical_grid_offset_values_clear_offset_equals_label():
+    layout = Layout((4, (4, 2)), (4, (1, 16)))
+
+    fig, ax = plt.subplots(figsize=(8 * 0.8 + 1, 4 * 0.8 + 1))
+    try:
+        _draw_hierarchical_grid(ax, layout, flatten_hierarchical=False,
+                                label_hierarchy_levels=True)
+        pairs = _offset_label_value_bboxes(ax)
+        assert pairs
+        min_gap = min(value_bbox.x0 - label_bbox.x1 for label_bbox, value_bbox in pairs)
+        # With advance-width text measurement, the value starts at the correct
+        # cursor position after "offset=".  The ink bounding boxes of the "="
+        # glyph and a bold digit may overlap slightly, so we check that the
+        # overlap is within one advance width (no full-character overlap).
+        assert min_gap >= -1.0
+    finally:
+        plt.close(fig)
+
+
+@requires_viz
+def test_draw_layout_small_nested_hierarchy_keeps_text_inside_cells(monkeypatch):
+    layout = Layout(((2, 2), (2, 2)), ((1, 4), (2, 8)))
+    seen = {}
+
+    def fake_save(fig, filename, dpi=150):
+        seen["fig"] = fig
+
+    monkeypatch.setattr(viz_mod, "_save_figure", fake_save)
+    draw_layout(
+        layout,
+        filename="ignored.svg",
+        flatten_hierarchical=False,
+        label_hierarchy_levels=True,
     )
 
+    fig = seen["fig"]
+    try:
+        cell_boxes = _cell_patch_bboxes(fig.axes[0])
+        text_boxes = _cell_text_bboxes(fig.axes[0], rows=4, cols=4)
+        assert len(cell_boxes) == 16
+        assert len(text_boxes) == 16
+
+        for cell, boxes in text_boxes.items():
+            cell_bbox = cell_boxes[cell]
+            union_bbox = Bbox.union(boxes)
+            assert union_bbox.x0 >= cell_bbox.x0 - 1.0
+            assert union_bbox.x1 <= cell_bbox.x1 + 1.0
+            assert union_bbox.y0 >= cell_bbox.y0 - 1.0
+            assert union_bbox.y1 <= cell_bbox.y1 + 1.0
+    finally:
+        plt.close(fig)
+
 
 @requires_viz
-def test_coord_levels_flattens_nested_coordinates_for_axis_labels():
-    assert _coord_levels(3) == (3,)
-    assert _coord_levels((1, 2)) == (1, 2)
-    assert _coord_levels(((1, 2), 3)) == (1, 2, 3)
+def test_draw_hierarchical_grid_leaves_corner_gap_between_axis_label_bands():
+    layout = Layout(((3, 2), ((2, 3), 2)), ((4, 1), ((2, 15), 100)))
+
+    fig, ax = plt.subplots(figsize=(12 * 0.8 + 1, 6 * 0.8 + 1))
+    try:
+        _draw_hierarchical_grid(ax, layout, flatten_hierarchical=False,
+                                label_hierarchy_levels=True)
+        row_boxes, col_boxes = _label_bboxes(ax)
+        assert row_boxes
+        assert col_boxes
+
+        max_row_x1 = max(bbox.x1 for _, bbox in row_boxes)
+        min_col_x0 = min(bbox.x0 for _, bbox in col_boxes)
+        max_row_y1 = max(bbox.y1 for _, bbox in row_boxes)
+        min_col_y0 = min(bbox.y0 for _, bbox in col_boxes)
+
+        assert min_col_x0 - max_row_x1 >= 10.0
+        assert min_col_y0 - max_row_y1 >= 10.0
+        assert not _has_bbox_overlap(row_boxes)
+        assert not _has_bbox_overlap(col_boxes)
+    finally:
+        plt.close(fig)
 
 
 @requires_viz
-def test_level_spans_supports_three_level_hierarchy():
-    assert _level_spans((2, 3, 4)) == (2, 6, 24)
+def test_draw_hierarchical_grid_draws_outer_perimeter_for_multiple_levels():
+    layout = Layout(((3, 2, 2, 2), (4, 2, 2, 2)),
+                    ((1, 3, 6, 12), (24, 96, 192, 384)))
+
+    fig, ax = plt.subplots()
+    try:
+        _draw_hierarchical_grid(ax, layout, flatten_hierarchical=False)
+        blue = viz_mod.HIERARCHY_LEVEL_COLORS[0]
+        orange = viz_mod.HIERARCHY_LEVEL_COLORS[1]
+        green = viz_mod.HIERARCHY_LEVEL_COLORS[2]
+
+        blue_horizontal, blue_vertical = _hierarchy_line_positions(ax, blue)
+        orange_horizontal, orange_vertical = _hierarchy_line_positions(ax, orange)
+        green_horizontal, green_vertical = _hierarchy_line_positions(ax, green)
+
+        assert {0.0, 24.0}.issubset(blue_horizontal)
+        assert {0.0, 32.0}.issubset(blue_vertical)
+        assert {0.0, 24.0}.issubset(orange_horizontal)
+        assert {0.0, 32.0}.issubset(orange_vertical)
+        assert {0.0, 24.0}.issubset(green_horizontal)
+        assert {0.0, 32.0}.issubset(green_vertical)
+    finally:
+        plt.close(fig)
 
 
 @requires_viz
-def test_level_block_sizes_supports_three_level_hierarchy():
-    assert _level_block_sizes((2, 3, 4)) == (1, 2, 6)
+def test_draw_hierarchical_grid_closes_boxes_for_column_only_hierarchy():
+    layout = Layout((4, (4, 2)), (4, (1, 16)))
+
+    fig, ax = plt.subplots()
+    try:
+        _draw_hierarchical_grid(ax, layout, flatten_hierarchical=False)
+        blue = viz_mod.HIERARCHY_LEVEL_COLORS[0]
+        blue_horizontal, blue_vertical = _hierarchy_line_positions(ax, blue)
+        assert blue_horizontal == {0.0, 4.0}
+        assert blue_vertical == {0.0, 4.0, 8.0}
+    finally:
+        plt.close(fig)
 
 
+@requires_viz
+def test_draw_hierarchical_grid_closes_boxes_for_coarse_column_only_level():
+    layout = Layout(((3, 2), ((2, 3), 2)), ((4, 1), ((2, 15), 100)))
+
+    fig, ax = plt.subplots()
+    try:
+        _draw_hierarchical_grid(ax, layout, flatten_hierarchical=False)
+        orange = viz_mod.HIERARCHY_LEVEL_COLORS[1]
+        orange_horizontal, orange_vertical = _hierarchy_line_positions(ax, orange)
+        assert orange_horizontal == {0.0, 6.0}
+        assert orange_vertical == {0.0, 6.0, 12.0}
+    finally:
+        plt.close(fig)
+
+
+@requires_viz
+def test_draw_hierarchical_grid_draws_coarser_lines_above_finer_lines():
+    layout = Layout(
+        ((2, 3, 2), (3, 2, 2)),
+        ((1, 2, 6), (12, 36, 72)),
+    )
+
+    fig, ax = plt.subplots()
+    try:
+        _draw_hierarchical_grid(ax, layout, flatten_hierarchical=False)
+        blue = viz_mod.HIERARCHY_LEVEL_COLORS[0]
+        orange = viz_mod.HIERARCHY_LEVEL_COLORS[1]
+        blue_zorders = _hierarchy_line_zorders(ax, blue)
+        orange_zorders = _hierarchy_line_zorders(ax, orange)
+        assert blue_zorders
+        assert orange_zorders
+        assert max(blue_zorders) < min(orange_zorders)
+    finally:
+        plt.close(fig)
+
+
+@requires_viz
+def test_draw_slice_hierarchical_keeps_flat_grid_and_highlights_on_top(monkeypatch):
+    layout = Layout(((2, 2), (2, 2)), ((1, 4), (2, 8)))
+    seen = {}
+
+    def fake_save(fig, filename, dpi=150):
+        ax = fig.axes[0]
+        seen["line_count"] = len(ax.lines)
+        red_edge = to_rgba(viz_mod.HIGHLIGHT_EDGE)
+        seen["highlight_zorders"] = [
+            patch.get_zorder()
+            for patch in ax.patches
+            if patch.get_edgecolor() == red_edge
+        ]
+        seen["base_zorders"] = [
+            patch.get_zorder()
+            for patch in ax.patches
+            if patch.get_edgecolor() != red_edge
+        ]
+        plt.close(fig)
+
+    monkeypatch.setattr(viz_mod, "_save_figure", fake_save)
+    draw_slice(layout, (0, None), filename="ignored.png")
+
+    assert seen["line_count"] == 0
+    assert seen["highlight_zorders"]
+    assert max(seen["base_zorders"]) < min(seen["highlight_zorders"])
+
+
+@requires_viz
 def test_slice_highlight_mask_tracks_logical_cells_not_offsets():
     layout = Layout((2, 2), (0, 1))
     mask = _get_slice_highlight_mask_2d(layout, (0, None))
@@ -383,3 +725,26 @@ def test_show_swizzle_delegates_to_shared_builder(monkeypatch):
         assert show_swizzle(layout, swizzle) is fig
     finally:
         plt.close(fig)
+
+
+@requires_viz
+def test_draw_swizzle_delegates_to_shared_builder(monkeypatch):
+    layout = Layout((8, 64), (64, 1))
+    swizzle = Swizzle(3, 4, 3)
+    fig = plt.figure()
+    seen = {}
+
+    def fake_builder(*args, **kwargs):
+        return fig
+
+    def fake_save(passed_fig, filename, dpi=150):
+        seen["fig"] = passed_fig
+        seen["filename"] = filename
+        plt.close(passed_fig)
+
+    monkeypatch.setattr(viz_mod, "_build_swizzle_figure", fake_builder)
+    monkeypatch.setattr(viz_mod, "_save_figure", fake_save)
+
+    draw_swizzle(layout, swizzle, filename="out.png")
+    assert seen["fig"] is fig
+    assert seen["filename"] == "out.png"
