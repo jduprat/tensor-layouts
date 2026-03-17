@@ -1759,6 +1759,30 @@ def _get_slice_highlight_mask_2d(layout, slice_spec) -> np.ndarray:
     return mask
 
 
+def _build_slice_figure(layout, slice_spec,
+                        title=None, figsize=None,
+                        colorize=False, color_layout=None,
+                        num_shades=8):
+    """Build the slice figure used by draw_slice/show_slice."""
+    indices = _get_indices_2d(layout)
+    rows, cols = indices.shape
+
+    highlight_mask = _get_slice_highlight_mask_2d(layout, slice_spec)
+
+    if figsize is None:
+        figsize = (cols * 0.5 + 1, rows * 0.5 + 1)
+
+    if title is None:
+        title = f"{layout}[{slice_spec}]"
+
+    fig, ax = plt.subplots(figsize=figsize)
+    color_indices = _get_color_indices_2d(layout, color_layout)
+    _draw_grid(ax, indices, highlight_mask=highlight_mask, title=title,
+               colorize=colorize, color_layout=color_layout,
+               color_indices=color_indices, num_shades=num_shades)
+    return fig
+
+
 def draw_slice(layout, slice_spec, filename=None,
                title: Optional[str] = None,
                dpi: int = 150,
@@ -1784,22 +1808,9 @@ def draw_slice(layout, slice_spec, filename=None,
             the same logical coordinate space as `layout` (None = color by value)
         num_shades: Number of colors/shades in palette
     """
-    indices = _get_indices_2d(layout)
-    rows, cols = indices.shape
-
-    highlight_mask = _get_slice_highlight_mask_2d(layout, slice_spec)
-
-    if figsize is None:
-        figsize = (cols * 0.5 + 1, rows * 0.5 + 1)
-
-    if title is None:
-        title = f"{layout}[{slice_spec}]"
-
-    fig, ax = plt.subplots(figsize=figsize)
-    color_indices = _get_color_indices_2d(layout, color_layout)
-    _draw_grid(ax, indices, highlight_mask=highlight_mask, title=title,
-               colorize=colorize, color_layout=color_layout,
-               color_indices=color_indices, num_shades=num_shades)
+    fig = _build_slice_figure(layout, slice_spec, title=title, figsize=figsize,
+                              colorize=colorize, color_layout=color_layout,
+                              num_shades=num_shades)
     _save_figure(fig, filename, dpi)
 
 
@@ -1915,6 +1926,30 @@ def show_tiled_grid(grid: dict, rows: int, cols: int,
         matplotlib Figure
     """
     return _build_tiled_grid_figure(grid, rows, cols, title=title)
+
+
+def show_slice(layout, slice_spec, title: Optional[str] = None,
+               figsize: Optional[Tuple[float, float]] = None,
+               colorize: bool = False,
+               color_layout: Optional[Layout] = None,
+               num_shades: int = 8):
+    """Display a layout slice inline (for Jupyter notebooks).
+
+    Args:
+        layout: Layout object
+        slice_spec: Slice specification (see draw_slice for details)
+        title: Optional title
+        figsize: Figure size in inches (auto-calculated if None)
+        colorize: If True, use rainbow colors for background cells
+        color_layout: Optional layout controlling background-cell coloring
+        num_shades: Number of colors/shades in palette
+
+    Returns:
+        matplotlib Figure
+    """
+    return _build_slice_figure(layout, slice_spec, title=title, figsize=figsize,
+                               colorize=colorize, color_layout=color_layout,
+                               num_shades=num_shades)
 
 
 # =============================================================================
