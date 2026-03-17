@@ -41,6 +41,7 @@ try:
     import matplotlib.pyplot as plt
     import layout_algebra.viz as viz_mod
     from layout_algebra.viz import (
+        _compute_tv_mapping,
         _draw_hierarchical_grid,
         _format_hierarchical_cell_lines,
         _format_nested_coord,
@@ -351,3 +352,10 @@ def test_slice_highlight_mask_tracks_logical_cells_not_offsets():
         [True, True],
         [False, False],
     ]
+
+
+@requires_viz
+def test_compute_tv_mapping_uses_first_wins_for_duplicate_cells():
+    layout = Layout((2, 2), (0, 0))
+    tv_map = _compute_tv_mapping(layout, grid_rows=1, grid_cols=1)
+    assert tv_map == {(0, 0): (0, 0, 0)}

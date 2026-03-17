@@ -955,6 +955,9 @@ def _compute_tv_mapping(layout, grid_cols: Optional[int] = None,
 
     Returns:
         dict mapping (row, col) or output_index -> (thread_id, value_id)
+
+    If multiple (thread, value) pairs land on the same output cell, the first
+    one encountered wins. This matches CuTe's print_latex* helpers.
     """
     t_shape = mode(layout.shape, 0)
     v_shape = mode(layout.shape, 1)
@@ -979,9 +982,12 @@ def _compute_tv_mapping(layout, grid_cols: Optional[int] = None,
                     row = out_idx // grid_cols
                     col = out_idx % grid_cols
                 # Store (physical_thread_id, value_id, logical_thread_id)
-                inv_map[(row, col)] = (phys_t, flat_v, flat_t)
+                key = (row, col)
+                if key not in inv_map:
+                    inv_map[key] = (phys_t, flat_v, flat_t)
             else:
-                inv_map[out_idx] = (phys_t, flat_v, flat_t)
+                if out_idx not in inv_map:
+                    inv_map[out_idx] = (phys_t, flat_v, flat_t)
 
     return inv_map
 
