@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2025 Meta Platforms, Inc. and affiliates.
+# Copyright (c) 2026 Meta Platforms, Inc. and affiliates.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -50,42 +50,53 @@ Requirements:
 """
 
 import itertools
-from functools import lru_cache
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional, Tuple
 
 import matplotlib
+
 # Use Agg (non-interactive) backend unless already set (e.g. by Jupyter)
-if matplotlib.get_backend() == 'agg' or not hasattr(matplotlib, '_called_from_jupyter'):
+if matplotlib.get_backend() == "agg" or not hasattr(matplotlib, "_called_from_jupyter"):
     try:
         # Check if we're in an IPython/Jupyter environment
         get_ipython()  # noqa: F821
     except NameError:
-        matplotlib.use('Agg')
-import matplotlib.pyplot as plt
+        matplotlib.use("Agg")
 import matplotlib.patches as patches
+import matplotlib.pyplot as plt
 import matplotlib.transforms as mtransforms
+import numpy as np
 from matplotlib.font_manager import FontProperties
 from matplotlib.textpath import TextToPath
-import numpy as np
 
 from .layouts import *
-from .tensor import Tensor
 from .atoms import CopyAtom
+from .tensor import Tensor
 
 __all__ = [
     # draw_* (save to file or display inline)
-    "draw_layout", "draw_swizzle", "draw_slice",
-    "draw_tv_layout", "draw_mma_layout",
-    "draw_tiled_grid", "draw_combined_mma_grid",
-    "draw_copy_layout", "draw_composite",
+    "draw_layout",
+    "draw_swizzle",
+    "draw_slice",
+    "draw_tv_layout",
+    "draw_mma_layout",
+    "draw_tiled_grid",
+    "draw_combined_mma_grid",
+    "draw_copy_layout",
+    "draw_composite",
     "draw_copy_atom",
     # show_* (return matplotlib Figure)
-    "show_layout", "show_swizzle", "show_slice",
-    "show_tv_layout", "show_mma_layout",
-    "show_tiled_grid", "show_combined_mma_grid",
-    "show_copy_layout", "show_composite",
+    "show_layout",
+    "show_swizzle",
+    "show_slice",
+    "show_tv_layout",
+    "show_mma_layout",
+    "show_tiled_grid",
+    "show_combined_mma_grid",
+    "show_copy_layout",
+    "show_composite",
     "show_copy_atom",
     # Demo
     "demo",
@@ -95,6 +106,7 @@ __all__ = [
 # =============================================================================
 # Color palettes and utilities
 # =============================================================================
+
 
 def _max_contrast_order(n: int) -> list:
     """Return index permutation for maximum contrast between adjacent entries.
@@ -132,7 +144,8 @@ def _make_grayscale_palette(n: int) -> list:
     """
     grays = [int(255 - i * 175 / max(n - 1, 1)) for i in range(n)]
     order = _max_contrast_order(n)
-    return [f'#{grays[k]:02X}{grays[k]:02X}{grays[k]:02X}' for k in order]
+    return [f"#{grays[k]:02X}{grays[k]:02X}{grays[k]:02X}" for k in order]
+
 
 def _make_rainbow_palette(n: int) -> list:
     """Generate n distinct rainbow colors.
@@ -145,30 +158,32 @@ def _make_rainbow_palette(n: int) -> list:
     """
     # 8 base colors matching cute-viz pastel palette
     base_colors = [
-        '#AFAFFF',  # Light blue
-        '#AFFFAF',  # Light green
-        '#FFFFAF',  # Light yellow
-        '#FFAFAF',  # Light red
-        '#D2D2FF',  # Lighter blue
-        '#D2FFD2',  # Lighter green
-        '#FFFFD2',  # Lighter yellow
-        '#FFD2D2',  # Lighter red
+        "#AFAFFF",  # Light blue
+        "#AFFFAF",  # Light green
+        "#FFFFAF",  # Light yellow
+        "#FFAFAF",  # Light red
+        "#D2D2FF",  # Lighter blue
+        "#D2FFD2",  # Lighter green
+        "#FFFFD2",  # Lighter yellow
+        "#FFD2D2",  # Lighter red
     ]
     if n <= len(base_colors):
         return base_colors[:n]
     # Ramp saturation from pastel (0.35 near n=8) to vivid (0.60 at n>=32)
     # so that the smaller hue steps at large n remain distinguishable.
     import colorsys
+
     t = min(1.0, (n - 8) / 24)  # 0 at n=8, 1 at n>=32
-    sat = 0.35 + t * 0.25       # 0.35 → 0.60
-    val = 0.95 - t * 0.03       # 0.95 → 0.92
+    sat = 0.35 + t * 0.25  # 0.35 → 0.60
+    val = 0.95 - t * 0.03  # 0.95 → 0.92
     monotonic = []
     for i in range(n):
         hue = i / n
         r, g, b = colorsys.hsv_to_rgb(hue, sat, val)
-        monotonic.append(f'#{int(r*255):02X}{int(g*255):02X}{int(b*255):02X}')
+        monotonic.append(f"#{int(r*255):02X}{int(g*255):02X}{int(b*255):02X}")
     order = _max_contrast_order(n)
     return [monotonic[k] for k in order]
+
 
 # Default palettes (8 shades/colors)
 GRAYSCALE_COLORS = _make_grayscale_palette(8)
@@ -176,31 +191,32 @@ RAINBOW_COLORS = _make_rainbow_palette(8)
 
 # Dark colors that need white text (by hex color)
 # With cute-viz pastel palette, only the darker grayscale colors need white text
-DARK_COLORS = {'#505050', '#3D3D3D', '#2B2B2B', '#696969', '#504B4B'}
+DARK_COLORS = {"#505050", "#3D3D3D", "#2B2B2B", "#696969", "#504B4B"}
 
-HIGHLIGHT_COLOR = '#FFDC96'  # Orange for highlighted cells
-HIGHLIGHT_EDGE = '#FF0000'   # Red border
+HIGHLIGHT_COLOR = "#FFDC96"  # Orange for highlighted cells
+HIGHLIGHT_EDGE = "#FF0000"  # Red border
 HIERARCHY_LEVEL_COLORS = [
-    '#1f77b4',  # blue
-    '#ff7f0e',  # orange
-    '#2ca02c',  # green
-    '#d62728',  # red
-    '#9467bd',  # purple
+    "#1f77b4",  # blue
+    "#ff7f0e",  # orange
+    "#2ca02c",  # green
+    "#d62728",  # red
+    "#9467bd",  # purple
 ]
 
 # Light variants for use on dark cell backgrounds
 HIERARCHY_LEVEL_COLORS_LIGHT = [
-    '#6baed6',  # light blue
-    '#ffbb78',  # light orange
-    '#98df8a',  # light green
-    '#ff9896',  # light red
-    '#c5b0d5',  # light purple
+    "#6baed6",  # light blue
+    "#ffbb78",  # light orange
+    "#98df8a",  # light green
+    "#ff9896",  # light red
+    "#c5b0d5",  # light purple
 ]
 
 
 # =============================================================================
 # Grid data model
 # =============================================================================
+
 
 @dataclass
 class OffsetGrid:
@@ -218,6 +234,7 @@ class OffsetGrid:
         row_shape: Hierarchical row shape, or None for flat layouts.
         col_shape: Hierarchical col shape, or None for flat layouts.
     """
+
     indices: np.ndarray
     color_indices: np.ndarray
     highlight_mask: Optional[np.ndarray] = None
@@ -238,10 +255,9 @@ class OffsetGrid:
         return self.cell_coords is not None
 
 
-def _prepare_offset_grid(layout, color_layout=None,
-                         slice_spec=None,
-                         hierarchical: bool = False,
-                         eval_fn=None) -> OffsetGrid:
+def _prepare_offset_grid(
+    layout, color_layout=None, slice_spec=None, hierarchical: bool = False, eval_fn=None
+) -> OffsetGrid:
     """Extract all visualization data from a layout into an OffsetGrid.
 
     Args:
@@ -304,6 +320,7 @@ def _is_dark(hex_color: str) -> bool:
 # =============================================================================
 # Index extraction
 # =============================================================================
+
 
 def _get_indices_2d(layout, eval_fn=None) -> np.ndarray:
     """Extract offset indices from layout as a displayed 2D grid.
@@ -394,7 +411,9 @@ def _get_color_indices_2d(layout, color_layout) -> Optional[np.ndarray]:
             row_coord = idx2crd(i, row_shape)
             for j in range(cols):
                 col_coord = idx2crd(j, col_shape)
-                color_indices[i, j] = _color_result_to_index(color_layout(row_coord, col_coord))
+                color_indices[i, j] = _color_result_to_index(
+                    color_layout(row_coord, col_coord)
+                )
         return color_indices
 
     raise ValueError(
@@ -406,30 +425,39 @@ def _get_color_indices_2d(layout, color_layout) -> Optional[np.ndarray]:
 # Core drawing functions
 # =============================================================================
 
-def _setup_axes(ax, x_range: Tuple[float, float], y_range: Tuple[float, float],
-                title: Optional[str] = None, title_fontsize: float = 10):
+
+def _setup_axes(
+    ax,
+    x_range: Tuple[float, float],
+    y_range: Tuple[float, float],
+    title: Optional[str] = None,
+    title_fontsize: float = 10,
+):
     """Configure axes for a cell-grid visualization."""
     ax.set_xlim(*x_range)
     ax.set_ylim(*y_range)
-    ax.set_aspect('equal')
+    ax.set_aspect("equal")
     ax.invert_yaxis()
-    ax.axis('off')
+    ax.axis("off")
     if title:
-        ax.set_title(title, fontsize=title_fontsize, fontweight='bold', pad=10)
+        ax.set_title(title, fontsize=title_fontsize, fontweight="bold", pad=10)
 
 
-def _draw_grid(ax, indices: np.ndarray,
-               highlight_mask: Optional[np.ndarray] = None,
-               hierarchy_shapes: Optional[Tuple[object, object]] = None,
-               cell_size: float = 1.0,
-               show_labels: bool = True,
-               title: Optional[str] = None,
-               colorize: bool = False,
-               color_indices: Optional[np.ndarray] = None,
-               num_colors: int = 8,
-               label_color: str = 'blue',
-               label_fontsize: float = 8,
-               cell_fontsize: Optional[float] = None):
+def _draw_grid(
+    ax,
+    indices: np.ndarray,
+    highlight_mask: Optional[np.ndarray] = None,
+    hierarchy_shapes: Optional[Tuple[object, object]] = None,
+    cell_size: float = 1.0,
+    show_labels: bool = True,
+    title: Optional[str] = None,
+    colorize: bool = False,
+    color_indices: Optional[np.ndarray] = None,
+    num_colors: int = 8,
+    label_color: str = "blue",
+    label_fontsize: float = 8,
+    cell_fontsize: Optional[float] = None,
+):
     """Draw a grid of cells with indices on a matplotlib axis.
 
     Args:
@@ -500,9 +528,13 @@ def _draw_grid(ax, indices: np.ndarray,
             # Draw base cell first; highlights are overlaid later so their
             # borders are not covered by neighboring cells.
             rect = patches.Rectangle(
-                (j, i), cell_size, cell_size,
-                facecolor=base_facecolor, edgecolor='black', linewidth=1,
-                zorder=1
+                (j, i),
+                cell_size,
+                cell_size,
+                facecolor=base_facecolor,
+                edgecolor="black",
+                linewidth=1,
+                zorder=1,
             )
             ax.add_patch(rect)
 
@@ -512,7 +544,9 @@ def _draw_grid(ax, indices: np.ndarray,
     if hierarchy_shapes is not None:
         row_shape, col_shape = hierarchy_shapes
         _draw_hierarchy_boundary_lines(
-            ax, rows, cols,
+            ax,
+            rows,
+            cols,
             _level_block_sizes(row_shape),
             _level_block_sizes(col_shape),
             zorder_base=4,
@@ -524,9 +558,13 @@ def _draw_grid(ax, indices: np.ndarray,
     # This ensures highlight borders aren't obscured by adjacent base cells.
     for i, j in highlighted_cells:
         rect = patches.Rectangle(
-            (j, i), cell_size, cell_size,
-            facecolor=HIGHLIGHT_COLOR, edgecolor=HIGHLIGHT_EDGE, linewidth=2,
-            zorder=6
+            (j, i),
+            cell_size,
+            cell_size,
+            facecolor=HIGHLIGHT_COLOR,
+            edgecolor=HIGHLIGHT_EDGE,
+            linewidth=2,
+            zorder=6,
         )
         ax.add_patch(rect)
 
@@ -534,21 +572,44 @@ def _draw_grid(ax, indices: np.ndarray,
         for j in range(cols):
             idx = int(indices[i, j])
             facecolor = final_facecolors[i, j]
-            text_color = 'white' if _is_dark(facecolor) else 'black'
-            ax.text(j + 0.5, i + 0.5, str(idx),
-                    ha='center', va='center', fontsize=cell_fontsize,
-                    color=text_color, zorder=7)
+            text_color = "white" if _is_dark(facecolor) else "black"
+            ax.text(
+                j + 0.5,
+                i + 0.5,
+                str(idx),
+                ha="center",
+                va="center",
+                fontsize=cell_fontsize,
+                color=text_color,
+                zorder=7,
+            )
 
     if show_labels:
         # Row labels (left)
         for i in range(rows):
-            ax.text(-0.3, i + 0.5, str(i), ha='center', va='center',
-                    fontsize=label_fontsize, color=label_color, zorder=8)
+            ax.text(
+                -0.3,
+                i + 0.5,
+                str(i),
+                ha="center",
+                va="center",
+                fontsize=label_fontsize,
+                color=label_color,
+                zorder=8,
+            )
 
         # Column labels (top)
         for j in range(cols):
-            ax.text(j + 0.5, -0.3, str(j), ha='center', va='center',
-                    fontsize=label_fontsize, color=label_color, zorder=8)
+            ax.text(
+                j + 0.5,
+                -0.3,
+                str(j),
+                ha="center",
+                va="center",
+                fontsize=label_fontsize,
+                color=label_color,
+                zorder=8,
+            )
 
 
 def _save_figure(fig, filename, dpi: int = 150):
@@ -556,10 +617,12 @@ def _save_figure(fig, filename, dpi: int = 150):
     if filename is None:
         # Inline display in Jupyter notebook
         try:
-            from IPython.display import display, Image
             import io
+
+            from IPython.display import display, Image
+
             buf = io.BytesIO()
-            fig.savefig(buf, format='png', dpi=dpi, bbox_inches='tight')
+            fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight")
             plt.close(fig)
             buf.seek(0)
             display(Image(data=buf.getvalue()))
@@ -568,16 +631,16 @@ def _save_figure(fig, filename, dpi: int = 150):
         return
 
     path = Path(filename)
-    fmt = path.suffix.lower().lstrip('.')
+    fmt = path.suffix.lower().lstrip(".")
 
-    if fmt == 'svg':
-        fig.savefig(filename, format='svg', bbox_inches='tight')
-    elif fmt == 'pdf':
-        fig.savefig(filename, format='pdf', bbox_inches='tight')
-    elif fmt in ('png', 'jpg', 'jpeg'):
-        fig.savefig(filename, format=fmt, dpi=dpi, bbox_inches='tight')
+    if fmt == "svg":
+        fig.savefig(filename, format="svg", bbox_inches="tight")
+    elif fmt == "pdf":
+        fig.savefig(filename, format="pdf", bbox_inches="tight")
+    elif fmt in ("png", "jpg", "jpeg"):
+        fig.savefig(filename, format=fmt, dpi=dpi, bbox_inches="tight")
     else:
-        fig.savefig(filename, format='png', dpi=dpi, bbox_inches='tight')
+        fig.savefig(filename, format="png", dpi=dpi, bbox_inches="tight")
 
     plt.close(fig)
 
@@ -586,13 +649,16 @@ def _save_figure(fig, filename, dpi: int = 150):
 # Composite Figure API
 # =============================================================================
 
-def _build_composite_figure(panels: list,
-                            arrangement: str = "horizontal",
-                            titles: Optional[list] = None,
-                            main_title: Optional[str] = None,
-                            panel_size: Tuple[float, float] = (4, 4),
-                            colorize: bool = False,
-                            tv_mode: bool = False):
+
+def _build_composite_figure(
+    panels: list,
+    arrangement: str = "horizontal",
+    titles: Optional[list] = None,
+    main_title: Optional[str] = None,
+    panel_size: Tuple[float, float] = (4, 4),
+    colorize: bool = False,
+    tv_mode: bool = False,
+):
     """Build the composite figure used by draw_composite/show_composite."""
     n = len(panels)
     if n == 0:
@@ -643,50 +709,62 @@ def _build_composite_figure(panels: list,
             layout = layout.layout
 
         # Merge with defaults
-        panel_colorize = opts.get('colorize', colorize)
-        panel_tv_mode = opts.get('tv_mode', tv_mode)
-        color_layout = opts.get('color_layout', None)
-        num_colors = opts.get('num_colors', 8)
+        panel_colorize = opts.get("colorize", colorize)
+        panel_tv_mode = opts.get("tv_mode", tv_mode)
+        color_layout = opts.get("color_layout", None)
+        num_colors = opts.get("num_colors", 8)
 
         # Get title
         title = titles[idx] if titles and idx < len(titles) else None
 
         # Draw the panel
         if panel_tv_mode:
-            _draw_tv_grid(ax, layout, title=title,
-                          colorize=panel_colorize,
-                          num_colors=opts.get('num_colors', num_colors),
-                          grid_rows=opts.get('grid_rows'),
-                          grid_cols=opts.get('grid_cols'),
-                          thr_id_layout=opts.get('thr_id_layout'),
-                          col_major=opts.get('col_major', True))
+            _draw_tv_grid(
+                ax,
+                layout,
+                title=title,
+                colorize=panel_colorize,
+                num_colors=opts.get("num_colors", num_colors),
+                grid_rows=opts.get("grid_rows"),
+                grid_cols=opts.get("grid_cols"),
+                thr_id_layout=opts.get("thr_id_layout"),
+                col_major=opts.get("col_major", True),
+            )
         else:
-            grid = _prepare_offset_grid(layout, color_layout=color_layout,
-                                        eval_fn=eval_fn)
-            _draw_grid(ax, grid.indices, title=title,
-                       colorize=panel_colorize,
-                       color_indices=grid.color_indices,
-                       num_colors=num_colors)
+            grid = _prepare_offset_grid(
+                layout, color_layout=color_layout, eval_fn=eval_fn
+            )
+            _draw_grid(
+                ax,
+                grid.indices,
+                title=title,
+                colorize=panel_colorize,
+                color_indices=grid.color_indices,
+                num_colors=num_colors,
+            )
 
     # Hide unused axes
     for idx in range(len(panels), len(axes)):
-        axes[idx].axis('off')
+        axes[idx].axis("off")
 
     if main_title:
-        fig.suptitle(main_title, fontsize=12, fontweight='bold')
+        fig.suptitle(main_title, fontsize=12, fontweight="bold")
 
     plt.tight_layout()
     return fig
 
 
-def draw_composite(panels: list, filename: str,
-                   arrangement: str = "horizontal",
-                   titles: Optional[list] = None,
-                   main_title: Optional[str] = None,
-                   dpi: int = 150,
-                   panel_size: Tuple[float, float] = (4, 4),
-                   colorize: bool = False,
-                   tv_mode: bool = False):
+def draw_composite(
+    panels: list,
+    filename: str,
+    arrangement: str = "horizontal",
+    titles: Optional[list] = None,
+    main_title: Optional[str] = None,
+    dpi: int = 150,
+    panel_size: Tuple[float, float] = (4, 4),
+    colorize: bool = False,
+    tv_mode: bool = False,
+):
     """Draw multiple layouts in a single composite figure.
 
     This allows composing sub-images into bigger figures, useful for:
@@ -723,16 +801,22 @@ def draw_composite(panels: list, filename: str,
             titles=["Linear", "Swizzled"]
         )
     """
-    fig = _build_composite_figure(panels, arrangement=arrangement,
-                                  titles=titles, main_title=main_title,
-                                  panel_size=panel_size, colorize=colorize,
-                                  tv_mode=tv_mode)
+    fig = _build_composite_figure(
+        panels,
+        arrangement=arrangement,
+        titles=titles,
+        main_title=main_title,
+        panel_size=panel_size,
+        colorize=colorize,
+        tv_mode=tv_mode,
+    )
     _save_figure(fig, filename, dpi)
 
 
 # =============================================================================
 # Public API
 # =============================================================================
+
 
 def _get_hierarchical_indices_2d(layout) -> Tuple[np.ndarray, int, int, tuple, tuple]:
     """Extract indices and dimensions for hierarchical layout visualization.
@@ -817,17 +901,19 @@ def _hierarchy_level_color(level: int, for_dark_bg: bool = False) -> str:
     readable against dark cell backgrounds.
     """
     if level == 0:
-        return '#cccccc' if for_dark_bg else '#333333'
+        return "#cccccc" if for_dark_bg else "#333333"
     palette = HIERARCHY_LEVEL_COLORS_LIGHT if for_dark_bg else HIERARCHY_LEVEL_COLORS
     return palette[(level - 1) % len(palette)]
 
 
-def _draw_hierarchy_boundary_lines(ax,
-                                   rows: int,
-                                   cols: int,
-                                   row_block_sizes: tuple[int, ...],
-                                   col_block_sizes: tuple[int, ...],
-                                   zorder_base: float = 4):
+def _draw_hierarchy_boundary_lines(
+    ax,
+    rows: int,
+    cols: int,
+    row_block_sizes: tuple[int, ...],
+    col_block_sizes: tuple[int, ...],
+    zorder_base: float = 4,
+):
     """Draw hierarchy boundary lines over a displayed grid.
 
     Boundary lines are drawn from finest to coarsest so coarser levels sit
@@ -838,7 +924,9 @@ def _draw_hierarchy_boundary_lines(ax,
     n_row_levels = len(row_block_sizes)
     n_col_levels = len(col_block_sizes)
 
-    def _is_shadowed_by_coarser(level: int, pos: int, block_sizes: tuple[int, ...]) -> bool:
+    def _is_shadowed_by_coarser(
+        level: int, pos: int, block_sizes: tuple[int, ...]
+    ) -> bool:
         """Return True if a same-orientation coarser hierarchy line also sits at pos."""
         for coarser_level in range(level + 1, len(block_sizes)):
             coarser_block = block_sizes[coarser_level]
@@ -846,11 +934,24 @@ def _draw_hierarchy_boundary_lines(ax,
                 return True
         return False
 
-    def _draw_boundary_line(x0: float, y0: float, x1: float, y1: float,
-                            color: str, linewidth: float, zorder: float):
+    def _draw_boundary_line(
+        x0: float,
+        y0: float,
+        x1: float,
+        y1: float,
+        color: str,
+        linewidth: float,
+        zorder: float,
+    ):
         """Draw a hierarchy boundary segment with consistent stroke caps."""
-        ax.plot([x0, x1], [y0, y1], color=color, linewidth=linewidth,
-                zorder=zorder, solid_capstyle='butt')
+        ax.plot(
+            [x0, x1],
+            [y0, y1],
+            color=color,
+            linewidth=linewidth,
+            zorder=zorder,
+            solid_capstyle="butt",
+        )
 
     max_levels = max(n_row_levels, n_col_levels)
 
@@ -881,7 +982,9 @@ def _draw_hierarchy_boundary_lines(ax,
                 _draw_boundary_line(j, 0, j, rows, color, linewidth, zorder)
 
 
-def _format_hierarchical_cell_lines(row_coord, col_coord, offset: int) -> tuple[str, str, str]:
+def _format_hierarchical_cell_lines(
+    row_coord, col_coord, offset: int
+) -> tuple[str, str, str]:
     """Format pedagogical hierarchical cell labels.
 
     Returns three explicit lines:
@@ -897,9 +1000,9 @@ def _format_hierarchical_cell_lines(row_coord, col_coord, offset: int) -> tuple[
 
 
 @lru_cache(maxsize=None)
-def _measure_text_width_pts(text: str, fontsize: float,
-                            family: str = 'sans-serif',
-                            weight: str = 'normal') -> float:
+def _measure_text_width_pts(
+    text: str, fontsize: float, family: str = "sans-serif", weight: str = "normal"
+) -> float:
     """Return rendered text width in points using advance widths."""
     if not text:
         return 0.0
@@ -908,11 +1011,13 @@ def _measure_text_width_pts(text: str, fontsize: float,
     return w
 
 
-def _hierarchical_label_margins(n_row_levels: int, n_col_levels: int,
-                                label_hierarchy_levels: bool,
-                                row_label_band_spacing: float = 1.2,
-                                col_label_band_spacing: float = 0.8
-                                ) -> tuple[float, float, float, float]:
+def _hierarchical_label_margins(
+    n_row_levels: int,
+    n_col_levels: int,
+    label_hierarchy_levels: bool,
+    row_label_band_spacing: float = 1.2,
+    col_label_band_spacing: float = 0.8,
+) -> tuple[float, float, float, float]:
     """Return margins and corner gaps for hierarchical axis labels."""
     corner_gap_x = 0.0
     corner_gap_y = 0.0
@@ -928,8 +1033,9 @@ def _hierarchical_label_margins(n_row_levels: int, n_col_levels: int,
     return left_margin, top_margin, corner_gap_x, corner_gap_y
 
 
-def _auto_hierarchical_figsize(layout, indices: np.ndarray, rows: int, cols: int,
-                               label_hierarchy_levels: bool) -> Tuple[float, float]:
+def _auto_hierarchical_figsize(
+    layout, indices: np.ndarray, rows: int, cols: int, label_hierarchy_levels: bool
+) -> Tuple[float, float]:
     """Estimate a readable default figure size for nested hierarchical views."""
     row_shape = mode(layout.shape, 0)
     col_shape = mode(layout.shape, 1)
@@ -948,7 +1054,7 @@ def _auto_hierarchical_figsize(layout, indices: np.ndarray, rows: int, cols: int
             _measure_text_width_pts(
                 f"row={_format_nested_coord(idx2crd(i, row_shape))}",
                 coord_fontsize,
-                family='monospace',
+                family="monospace",
             )
             for i in range(rows)
         ),
@@ -959,21 +1065,21 @@ def _auto_hierarchical_figsize(layout, indices: np.ndarray, rows: int, cols: int
             _measure_text_width_pts(
                 f"col={_format_nested_coord(idx2crd(j, col_shape))}",
                 coord_fontsize,
-                family='monospace',
+                family="monospace",
             )
             for j in range(cols)
         ),
         default=0.0,
     )
     offset_width_pts = _measure_text_width_pts(
-        "offset=", offset_fontsize, family='monospace'
+        "offset=", offset_fontsize, family="monospace"
     ) + max(
         (
             _measure_text_width_pts(
                 str(int(idx)),
                 offset_fontsize,
-                family='monospace',
-                weight='bold',
+                family="monospace",
+                weight="bold",
             )
             for idx in indices.flat
         ),
@@ -997,12 +1103,12 @@ def _auto_hierarchical_figsize(layout, indices: np.ndarray, rows: int, cols: int
 
     scale_pts = max(required_cell_width_pts, required_cell_height_pts)
     subplot_width_frac = (
-        matplotlib.rcParams['figure.subplot.right']
-        - matplotlib.rcParams['figure.subplot.left']
+        matplotlib.rcParams["figure.subplot.right"]
+        - matplotlib.rcParams["figure.subplot.left"]
     )
     subplot_height_frac = (
-        matplotlib.rcParams['figure.subplot.top']
-        - matplotlib.rcParams['figure.subplot.bottom']
+        matplotlib.rcParams["figure.subplot.top"]
+        - matplotlib.rcParams["figure.subplot.bottom"]
     )
     total_x_range = cols + 0.5 + left_margin
     total_y_range = rows + 0.5 + top_margin
@@ -1014,9 +1120,17 @@ def _auto_hierarchical_figsize(layout, indices: np.ndarray, rows: int, cols: int
     return fig_width, fig_height
 
 
-def _draw_colored_coord_line(ax, x: float, y: float, prefix: str, coord,
-                             base_color: str, fontsize: float,
-                             use_level_colors: bool, for_dark_bg: bool = False):
+def _draw_colored_coord_line(
+    ax,
+    x: float,
+    y: float,
+    prefix: str,
+    coord,
+    base_color: str,
+    fontsize: float,
+    use_level_colors: bool,
+    for_dark_bg: bool = False,
+):
     """Draw row=/col= line with per-coordinate level colors.
 
     When enabled, the scalar coordinate components use the same colors as the
@@ -1029,20 +1143,37 @@ def _draw_colored_coord_line(ax, x: float, y: float, prefix: str, coord,
     levels = _coord_levels(coord)
     pieces = [(f"{prefix}=(", base_color)]
     for level, value in enumerate(levels):
-        pieces.append((str(value),
-                       _hierarchy_level_color(level, for_dark_bg) if use_level_colors else base_color))
+        pieces.append(
+            (
+                str(value),
+                (
+                    _hierarchy_level_color(level, for_dark_bg)
+                    if use_level_colors
+                    else base_color
+                ),
+            )
+        )
         if level != len(levels) - 1:
             pieces.append((",", base_color))
     pieces.append((")", base_color))
 
     offset_pts = 0
     for text, color in pieces:
-        trans = mtransforms.offset_copy(ax.transData, fig=ax.figure,
-                                        x=offset_pts, y=0, units='points')
-        ax.text(x, y, text, transform=trans,
-                ha='left', va='center', fontsize=fontsize,
-                color=color, family='monospace')
-        offset_pts += _measure_text_width_pts(text, fontsize, family='monospace')
+        trans = mtransforms.offset_copy(
+            ax.transData, fig=ax.figure, x=offset_pts, y=0, units="points"
+        )
+        ax.text(
+            x,
+            y,
+            text,
+            transform=trans,
+            ha="left",
+            va="center",
+            fontsize=fontsize,
+            color=color,
+            family="monospace",
+        )
+        offset_pts += _measure_text_width_pts(text, fontsize, family="monospace")
 
 
 def _get_hierarchical_cell_coords_2d(layout) -> np.ndarray:
@@ -1064,17 +1195,23 @@ def _get_hierarchical_cell_coords_2d(layout) -> np.ndarray:
     return coords
 
 
-def _draw_hierarchical_grid(ax, indices, rows, cols,
-                            cell_coords,
-                            row_shape, col_shape,
-                            cell_size: float = 1.0,
-                            show_labels: bool = True,
-                            title: Optional[str] = None,
-                            colorize: bool = False,
-                            color_indices: Optional[np.ndarray] = None,
-                            flatten_hierarchical: bool = True,
-                            label_hierarchy_levels: bool = False,
-                            num_colors: int = 8):
+def _draw_hierarchical_grid(
+    ax,
+    indices,
+    rows,
+    cols,
+    cell_coords,
+    row_shape,
+    col_shape,
+    cell_size: float = 1.0,
+    show_labels: bool = True,
+    title: Optional[str] = None,
+    colorize: bool = False,
+    color_indices: Optional[np.ndarray] = None,
+    flatten_hierarchical: bool = True,
+    label_hierarchy_levels: bool = False,
+    num_colors: int = 8,
+):
     """Draw a hierarchical layout grid.
 
     Args:
@@ -1135,57 +1272,98 @@ def _draw_hierarchical_grid(ax, indices, rows, cols,
                 color_idx = idx % len(colors)
             facecolor = colors[color_idx]
             if flatten_hierarchical:
-                edgecolor = 'black'
+                edgecolor = "black"
                 linewidth = 0.5
             else:
                 # In pedagogical hierarchical mode, keep per-cell borders light
                 # so hierarchy boundary lines stand out clearly.
-                edgecolor = '#444444'
+                edgecolor = "#444444"
                 linewidth = 0.3
 
             rect = patches.Rectangle(
-                (j, i), cell_size, cell_size,
-                facecolor=facecolor, edgecolor=edgecolor, linewidth=linewidth,
-                zorder=1
+                (j, i),
+                cell_size,
+                cell_size,
+                facecolor=facecolor,
+                edgecolor=edgecolor,
+                linewidth=linewidth,
+                zorder=1,
             )
             ax.add_patch(rect)
 
             is_dark_bg = _is_dark(facecolor)
-            text_color = 'white' if is_dark_bg else 'black'
+            text_color = "white" if is_dark_bg else "black"
             if flatten_hierarchical:
                 # Draw flat offset value in cell
-                ax.text(j + 0.5, i + 0.5, str(idx),
-                        ha='center', va='center', fontsize=8, color=text_color)
+                ax.text(
+                    j + 0.5,
+                    i + 0.5,
+                    str(idx),
+                    ha="center",
+                    va="center",
+                    fontsize=8,
+                    color=text_color,
+                )
             else:
                 # Draw explicit pedagogical labels: row coordinate, column
                 # coordinate, and resulting offset.
                 row_coord, col_coord = cell_coords[i, j]
-                row_line, col_line, off_line = _format_hierarchical_cell_lines(row_coord, col_coord, idx)
+                row_line, col_line, off_line = _format_hierarchical_cell_lines(
+                    row_coord, col_coord, idx
+                )
                 x_left = j + 0.12
                 _draw_colored_coord_line(
-                    ax, x_left, i + 0.22, "row", row_coord,
-                    text_color, coord_fontsize, use_level_colors=label_hierarchy_levels,
-                    for_dark_bg=is_dark_bg
+                    ax,
+                    x_left,
+                    i + 0.22,
+                    "row",
+                    row_coord,
+                    text_color,
+                    coord_fontsize,
+                    use_level_colors=label_hierarchy_levels,
+                    for_dark_bg=is_dark_bg,
                 )
                 _draw_colored_coord_line(
-                    ax, x_left, i + 0.50, "col", col_coord,
-                    text_color, coord_fontsize, use_level_colors=label_hierarchy_levels,
-                    for_dark_bg=is_dark_bg
+                    ax,
+                    x_left,
+                    i + 0.50,
+                    "col",
+                    col_coord,
+                    text_color,
+                    coord_fontsize,
+                    use_level_colors=label_hierarchy_levels,
+                    for_dark_bg=is_dark_bg,
                 )
                 offset_label, offset_value = off_line.split("=", 1)
                 offset_label_text = f"{offset_label}="
-                ax.text(x_left, i + 0.78, offset_label_text,
-                        ha='left', va='center', fontsize=offset_fontsize, color=text_color,
-                        family='monospace')
-                offset_label_pts = _measure_text_width_pts(
-                    offset_label_text, offset_fontsize, family='monospace'
+                ax.text(
+                    x_left,
+                    i + 0.78,
+                    offset_label_text,
+                    ha="left",
+                    va="center",
+                    fontsize=offset_fontsize,
+                    color=text_color,
+                    family="monospace",
                 )
-                trans = mtransforms.offset_copy(ax.transData, fig=ax.figure,
-                                                x=offset_label_pts,
-                                                y=0, units='points')
-                ax.text(x_left, i + 0.78, offset_value, transform=trans,
-                        ha='left', va='center', fontsize=offset_fontsize,
-                        color=text_color, fontweight='bold', family='monospace')
+                offset_label_pts = _measure_text_width_pts(
+                    offset_label_text, offset_fontsize, family="monospace"
+                )
+                trans = mtransforms.offset_copy(
+                    ax.transData, fig=ax.figure, x=offset_label_pts, y=0, units="points"
+                )
+                ax.text(
+                    x_left,
+                    i + 0.78,
+                    offset_value,
+                    transform=trans,
+                    ha="left",
+                    va="center",
+                    fontsize=offset_fontsize,
+                    color=text_color,
+                    fontweight="bold",
+                    family="monospace",
+                )
 
     # Draw blue tile boundary lines for nested view
     if not flatten_hierarchical:
@@ -1204,9 +1382,16 @@ def _draw_hierarchical_grid(ax, indices, rows, cols,
                 for start in range(0, rows, block_size):
                     center = start + block_size / 2
                     value = _coord_levels(idx2crd(start, row_shape))[level]
-                    ax.text(x, center, f"row[{level}]={value}",
-                            ha='center', va='center', fontsize=row_axis_label_fontsize,
-                            color=color, fontweight='bold')
+                    ax.text(
+                        x,
+                        center,
+                        f"row[{level}]={value}",
+                        ha="center",
+                        va="center",
+                        fontsize=row_axis_label_fontsize,
+                        color=color,
+                        fontweight="bold",
+                    )
             for level in range(n_col_levels):
                 block_size = col_block_sizes[level]
                 color = _hierarchy_level_color(level)
@@ -1214,28 +1399,51 @@ def _draw_hierarchical_grid(ax, indices, rows, cols,
                 for start in range(0, cols, block_size):
                     center = start + block_size / 2
                     value = _coord_levels(idx2crd(start, col_shape))[level]
-                    ax.text(center, y, f"col[{level}]={value}",
-                            ha='center', va='center', fontsize=col_axis_label_fontsize,
-                            color=color, fontweight='bold')
+                    ax.text(
+                        center,
+                        y,
+                        f"col[{level}]={value}",
+                        ha="center",
+                        va="center",
+                        fontsize=col_axis_label_fontsize,
+                        color=color,
+                        fontweight="bold",
+                    )
         else:
             # Single-level labels
             for i in range(rows):
-                ax.text(-0.3, i + 0.5, f"R{i}", ha='center', va='center',
-                        fontsize=8, color='blue')
+                ax.text(
+                    -0.3,
+                    i + 0.5,
+                    f"R{i}",
+                    ha="center",
+                    va="center",
+                    fontsize=8,
+                    color="blue",
+                )
             for j in range(cols):
-                ax.text(j + 0.5, -0.3, f"C{j}", ha='center', va='center',
-                        fontsize=8, color='blue')
+                ax.text(
+                    j + 0.5,
+                    -0.3,
+                    f"C{j}",
+                    ha="center",
+                    va="center",
+                    fontsize=8,
+                    color="blue",
+                )
 
 
-def _build_layout_figure(layout,
-                         title: Optional[str] = None,
-                         figsize: Optional[Tuple[float, float]] = None,
-                         colorize: bool = False,
-                         color_layout: Optional[Layout] = None,
-                         color_by: Optional[str] = None,
-                         num_colors: int = 8,
-                         flatten_hierarchical: bool = True,
-                         label_hierarchy_levels: bool = False):
+def _build_layout_figure(
+    layout,
+    title: Optional[str] = None,
+    figsize: Optional[Tuple[float, float]] = None,
+    colorize: bool = False,
+    color_layout: Optional[Layout] = None,
+    color_by: Optional[str] = None,
+    num_colors: int = 8,
+    flatten_hierarchical: bool = True,
+    label_hierarchy_levels: bool = False,
+):
     """Build the layout figure used by draw_layout/show_layout.
 
     Accepts Layout or Tensor. When given a Tensor, cells display offset-adjusted
@@ -1262,8 +1470,10 @@ def _build_layout_figure(layout,
         elif color_by == "offset":
             color_layout = None  # default behavior
         else:
-            raise ValueError(f"Unknown color_by value: {color_by!r} "
-                             f"(expected 'row', 'column', or 'offset')")
+            raise ValueError(
+                f"Unknown color_by value: {color_by!r} "
+                f"(expected 'row', 'column', or 'offset')"
+            )
         colorize = True
 
     # Rank >= 3: decompose into multiple 2D panels along the leading mode(s)
@@ -1275,10 +1485,8 @@ def _build_layout_figure(layout,
         n_panels = 1
         for s in outer_sizes:
             n_panels *= s
-        inner_shape = as_shape(tuple(
-            mode(layout.shape, i) for i in range(r - 2, r)))
-        inner_stride = as_shape(tuple(
-            mode(layout.stride, i) for i in range(r - 2, r)))
+        inner_shape = as_shape(tuple(mode(layout.shape, i) for i in range(r - 2, r)))
+        inner_stride = as_shape(tuple(mode(layout.stride, i) for i in range(r - 2, r)))
 
         # Build per-panel sub-layouts and eval functions
         sub_layouts = []
@@ -1303,19 +1511,25 @@ def _build_layout_figure(layout,
             _sub = sub
             if layout.swizzle is not None:
                 _sw = layout.swizzle
+
                 def _make_eval(o, s, sw):
                     def fn(*args):
                         coord = args[0] if len(args) == 1 else args
                         linear = o + crd2offset(coord, s.shape, s.stride)
                         return sw(linear)
+
                     return fn
+
                 sub_evals.append(_make_eval(_off, _sub, _sw))
             else:
+
                 def _make_eval_plain(o, s):
                     def fn(*args):
                         coord = args[0] if len(args) == 1 else args
                         return o + crd2offset(coord, s.shape, s.stride)
+
                     return fn
+
                 sub_evals.append(_make_eval_plain(_off, _sub))
 
             if len(outer_sizes) == 1:
@@ -1337,41 +1551,46 @@ def _build_layout_figure(layout,
         elif nrows == 1 or ncols == 1:
             axes = list(axes_array)
         else:
-            axes = [axes_array[i, j]
-                    for i in range(nrows) for j in range(ncols)]
+            axes = [axes_array[i, j] for i in range(nrows) for j in range(ncols)]
 
         for idx in range(n_panels):
-            grid = _prepare_offset_grid(sub_layouts[idx],
-                                        color_layout=color_layout,
-                                        eval_fn=sub_evals[idx])
-            _draw_grid(axes[idx], grid.indices,
-                       title=panel_titles[idx],
-                       colorize=colorize,
-                       color_indices=grid.color_indices,
-                       num_colors=num_colors)
+            grid = _prepare_offset_grid(
+                sub_layouts[idx], color_layout=color_layout, eval_fn=sub_evals[idx]
+            )
+            _draw_grid(
+                axes[idx],
+                grid.indices,
+                title=panel_titles[idx],
+                colorize=colorize,
+                color_indices=grid.color_indices,
+                num_colors=num_colors,
+            )
 
         for idx in range(n_panels, len(axes)):
-            axes[idx].axis('off')
+            axes[idx].axis("off")
 
-        fig.suptitle(title or str(layout), fontsize=12, fontweight='bold')
+        fig.suptitle(title or str(layout), fontsize=12, fontweight="bold")
         plt.tight_layout()
         return fig
 
     # Check if this is a hierarchical layout (has nested tuple shapes)
-    is_hierarchical = (r == 2 and
-                       (isinstance(mode(layout.shape, 0), tuple) or
-                        isinstance(mode(layout.shape, 1), tuple)))
+    is_hierarchical = r == 2 and (
+        isinstance(mode(layout.shape, 0), tuple)
+        or isinstance(mode(layout.shape, 1), tuple)
+    )
 
     want_hierarchical = is_hierarchical and not flatten_hierarchical
-    grid = _prepare_offset_grid(layout, color_layout=color_layout,
-                                hierarchical=want_hierarchical,
-                                eval_fn=eval_fn)
+    grid = _prepare_offset_grid(
+        layout,
+        color_layout=color_layout,
+        hierarchical=want_hierarchical,
+        eval_fn=eval_fn,
+    )
 
     if figsize is None:
         if grid.is_hierarchical:
             figsize = _auto_hierarchical_figsize(
-                layout, grid.indices, grid.rows, grid.cols,
-                label_hierarchy_levels
+                layout, grid.indices, grid.rows, grid.cols, label_hierarchy_levels
             )
         else:
             cell_scale = 0.5
@@ -1380,34 +1599,47 @@ def _build_layout_figure(layout,
     fig, ax = plt.subplots(figsize=figsize)
 
     if grid.is_hierarchical:
-        _draw_hierarchical_grid(ax, grid.indices, grid.rows, grid.cols,
-                                cell_coords=grid.cell_coords,
-                                row_shape=grid.row_shape,
-                                col_shape=grid.col_shape,
-                                title=title or str(layout),
-                                colorize=colorize,
-                                color_indices=grid.color_indices,
-                                flatten_hierarchical=False,
-                                label_hierarchy_levels=label_hierarchy_levels,
-                                num_colors=num_colors)
+        _draw_hierarchical_grid(
+            ax,
+            grid.indices,
+            grid.rows,
+            grid.cols,
+            cell_coords=grid.cell_coords,
+            row_shape=grid.row_shape,
+            col_shape=grid.col_shape,
+            title=title or str(layout),
+            colorize=colorize,
+            color_indices=grid.color_indices,
+            flatten_hierarchical=False,
+            label_hierarchy_levels=label_hierarchy_levels,
+            num_colors=num_colors,
+        )
     else:
-        _draw_grid(ax, grid.indices, title=title or str(layout),
-                   colorize=colorize,
-                   color_indices=grid.color_indices, num_colors=num_colors)
+        _draw_grid(
+            ax,
+            grid.indices,
+            title=title or str(layout),
+            colorize=colorize,
+            color_indices=grid.color_indices,
+            num_colors=num_colors,
+        )
 
     return fig
 
 
-def draw_layout(layout, filename=None,
-                title: Optional[str] = None,
-                dpi: int = 150,
-                figsize: Optional[Tuple[float, float]] = None,
-                colorize: bool = False,
-                color_layout: Optional[Layout] = None,
-                color_by: Optional[str] = None,
-                num_colors: int = 8,
-                flatten_hierarchical: bool = True,
-                label_hierarchy_levels: bool = False):
+def draw_layout(
+    layout,
+    filename=None,
+    title: Optional[str] = None,
+    dpi: int = 150,
+    figsize: Optional[Tuple[float, float]] = None,
+    colorize: bool = False,
+    color_layout: Optional[Layout] = None,
+    color_by: Optional[str] = None,
+    num_colors: int = 8,
+    flatten_hierarchical: bool = True,
+    label_hierarchy_levels: bool = False,
+):
     """Draw a layout or tensor and save to file.
 
     Args:
@@ -1441,11 +1673,17 @@ def draw_layout(layout, filename=None,
             axes with each hierarchy level at block/tile granularity. Label
             colors match the corresponding hierarchy boundary lines.
     """
-    fig = _build_layout_figure(layout, title=title, figsize=figsize,
-                               colorize=colorize, color_layout=color_layout,
-                               color_by=color_by, num_colors=num_colors,
-                               flatten_hierarchical=flatten_hierarchical,
-                               label_hierarchy_levels=label_hierarchy_levels)
+    fig = _build_layout_figure(
+        layout,
+        title=title,
+        figsize=figsize,
+        colorize=colorize,
+        color_layout=color_layout,
+        color_by=color_by,
+        num_colors=num_colors,
+        flatten_hierarchical=flatten_hierarchical,
+        label_hierarchy_levels=label_hierarchy_levels,
+    )
     _save_figure(fig, filename, dpi)
 
 
@@ -1468,10 +1706,13 @@ def _infer_tv_grid_shape(layout, grid_shape=None, grid_rows=None, grid_cols=None
     return (rows, cols)
 
 
-def _compute_tv_mapping(layout, grid_cols: Optional[int] = None,
-                        grid_rows: Optional[int] = None,
-                        thr_id_layout=None,
-                        col_major: bool = True):
+def _compute_tv_mapping(
+    layout,
+    grid_cols: Optional[int] = None,
+    grid_rows: Optional[int] = None,
+    thr_id_layout=None,
+    col_major: bool = True,
+):
     """Compute the inverse TV mapping: for each (row, col), return (thread, value).
 
     The offset is decomposed to (row, col) using either:
@@ -1530,10 +1771,18 @@ def _compute_tv_mapping(layout, grid_cols: Optional[int] = None,
     return inv_map
 
 
-def _draw_tv_cells(ax, tv_map: dict, rows: int, cols: int,
-                   colors, cell_size: float = 1.0,
-                   offset_x: float = 0.0, offset_y: float = 0.0,
-                   fontsize: float = 7, linewidth: float = 1.0):
+def _draw_tv_cells(
+    ax,
+    tv_map: dict,
+    rows: int,
+    cols: int,
+    colors,
+    cell_size: float = 1.0,
+    offset_x: float = 0.0,
+    offset_y: float = 0.0,
+    fontsize: float = 7,
+    linewidth: float = 1.0,
+):
     """Draw TV cells from a precomputed mapping.
 
     Shared cell-drawing loop used by _draw_tv_grid, draw_mma_layout, and
@@ -1556,33 +1805,61 @@ def _draw_tv_cells(ax, tv_map: dict, rows: int, cols: int,
             y = offset_y + i
 
             rect = patches.Rectangle(
-                (x, y), cell_size, cell_size,
-                facecolor=facecolor, edgecolor='black', linewidth=linewidth
+                (x, y),
+                cell_size,
+                cell_size,
+                facecolor=facecolor,
+                edgecolor="black",
+                linewidth=linewidth,
             )
             ax.add_patch(rect)
 
-            text_color = 'white' if _is_dark(facecolor) else 'black'
+            text_color = "white" if _is_dark(facecolor) else "black"
             if t_idx >= 0:
-                ax.text(x + 0.5, y + 0.3, f"T{t_idx}",
-                        ha='center', va='center', fontsize=fontsize, color=text_color)
-                ax.text(x + 0.5, y + 0.7, f"V{v_idx}",
-                        ha='center', va='center', fontsize=fontsize, color=text_color)
+                ax.text(
+                    x + 0.5,
+                    y + 0.3,
+                    f"T{t_idx}",
+                    ha="center",
+                    va="center",
+                    fontsize=fontsize,
+                    color=text_color,
+                )
+                ax.text(
+                    x + 0.5,
+                    y + 0.7,
+                    f"V{v_idx}",
+                    ha="center",
+                    va="center",
+                    fontsize=fontsize,
+                    color=text_color,
+                )
             else:
-                ax.text(x + 0.5, y + 0.5, "?",
-                        ha='center', va='center', fontsize=fontsize, color=text_color)
+                ax.text(
+                    x + 0.5,
+                    y + 0.5,
+                    "?",
+                    ha="center",
+                    va="center",
+                    fontsize=fontsize,
+                    color=text_color,
+                )
 
 
-def _draw_tv_grid(ax, layout,
-                  cell_size: float = 1.0,
-                  title: Optional[str] = None,
-                  colorize: bool = False,
-                  num_colors: Optional[int] = None,
-                  label_margin: float = 0.5,
-                  title_position: str = "top",
-                  grid_rows: Optional[int] = None,
-                  grid_cols: Optional[int] = None,
-                  thr_id_layout=None,
-                  col_major: bool = True):
+def _draw_tv_grid(
+    ax,
+    layout,
+    cell_size: float = 1.0,
+    title: Optional[str] = None,
+    colorize: bool = False,
+    num_colors: Optional[int] = None,
+    label_margin: float = 0.5,
+    title_position: str = "top",
+    grid_rows: Optional[int] = None,
+    grid_cols: Optional[int] = None,
+    thr_id_layout=None,
+    col_major: bool = True,
+):
     """Draw a Thread-Value grid showing T and V indices in each cell.
 
     For a TV layout, this shows the physical arrangement of threads and values.
@@ -1599,13 +1876,16 @@ def _draw_tv_grid(ax, layout,
     num_t = size(mode(layout, 0))  # Number of threads
 
     # Determine grid dimensions
-    rows, cols = _infer_tv_grid_shape(layout, grid_rows=grid_rows,
-                                      grid_cols=grid_cols)
+    rows, cols = _infer_tv_grid_shape(layout, grid_rows=grid_rows, grid_cols=grid_cols)
 
     # Build the inverse mapping with grid dimensions
-    tv_map = _compute_tv_mapping(layout, grid_cols=cols, grid_rows=rows,
-                                 thr_id_layout=thr_id_layout,
-                                 col_major=col_major)
+    tv_map = _compute_tv_mapping(
+        layout,
+        grid_cols=cols,
+        grid_rows=rows,
+        thr_id_layout=thr_id_layout,
+        col_major=col_major,
+    )
 
     # Build color palette based on number of threads (cycle through 8 colors like cute-viz)
     n_colors = num_colors if num_colors else min(num_t, 8)
@@ -1615,26 +1895,38 @@ def _draw_tv_grid(ax, layout,
         colors = _make_grayscale_palette(n_colors)
 
     # Set up axes with label margin
-    _setup_axes(ax, (-label_margin, cols + label_margin),
-                (-label_margin, rows + label_margin),
-                title=title if title_position == "top" else None)
+    _setup_axes(
+        ax,
+        (-label_margin, cols + label_margin),
+        (-label_margin, rows + label_margin),
+        title=title if title_position == "top" else None,
+    )
 
     if title and title_position != "top":
-        ax.text(cols / 2, rows + 0.5, title,
-                ha='center', va='top', fontsize=10, fontweight='bold')
+        ax.text(
+            cols / 2,
+            rows + 0.5,
+            title,
+            ha="center",
+            va="top",
+            fontsize=10,
+            fontweight="bold",
+        )
 
     # Draw each cell
     _draw_tv_cells(ax, tv_map, rows, cols, colors, cell_size)
 
 
-def _build_tv_figure(layout,
-                     title: Optional[str] = None,
-                     figsize: Optional[Tuple[float, float]] = None,
-                     colorize: bool = False,
-                     num_colors: Optional[int] = None,
-                     grid_shape: Optional[Tuple[int, int]] = None,
-                     thr_id_layout=None,
-                     col_major: bool = True):
+def _build_tv_figure(
+    layout,
+    title: Optional[str] = None,
+    figsize: Optional[Tuple[float, float]] = None,
+    colorize: bool = False,
+    num_colors: Optional[int] = None,
+    grid_shape: Optional[Tuple[int, int]] = None,
+    thr_id_layout=None,
+    col_major: bool = True,
+):
     """Build the TV figure used by draw_tv_layout/show_tv_layout."""
     r = rank(layout)
     if r != 2:
@@ -1646,23 +1938,32 @@ def _build_tv_figure(layout,
         figsize = (cols * 0.6 + 1.5, rows * 0.5 + 1)
 
     fig, ax = plt.subplots(figsize=figsize)
-    _draw_tv_grid(ax, layout, title=title or f"TV: {layout}",
-                  colorize=colorize, num_colors=num_colors,
-                  grid_rows=rows, grid_cols=cols,
-                  thr_id_layout=thr_id_layout,
-                  col_major=col_major)
+    _draw_tv_grid(
+        ax,
+        layout,
+        title=title or f"TV: {layout}",
+        colorize=colorize,
+        num_colors=num_colors,
+        grid_rows=rows,
+        grid_cols=cols,
+        thr_id_layout=thr_id_layout,
+        col_major=col_major,
+    )
     return fig
 
 
-def draw_tv_layout(layout, filename=None,
-                   title: Optional[str] = None,
-                   dpi: int = 150,
-                   figsize: Optional[Tuple[float, float]] = None,
-                   colorize: bool = False,
-                   num_colors: Optional[int] = None,
-                   grid_shape: Optional[Tuple[int, int]] = None,
-                   thr_id_layout=None,
-                   col_major: bool = True):
+def draw_tv_layout(
+    layout,
+    filename=None,
+    title: Optional[str] = None,
+    dpi: int = 150,
+    figsize: Optional[Tuple[float, float]] = None,
+    colorize: bool = False,
+    num_colors: Optional[int] = None,
+    grid_shape: Optional[Tuple[int, int]] = None,
+    thr_id_layout=None,
+    col_major: bool = True,
+):
     """Draw a Thread-Value layout showing T and V indices in each cell.
 
     For TV layouts where shape is (Threads, Values), this shows each cell
@@ -1688,16 +1989,28 @@ def draw_tv_layout(layout, filename=None,
         mma_a = Layout(((4,2,2,2), (2,2)), ((32,1,8,128), (16,4)))
         draw_tv_layout(mma_a, "mma_a.svg", grid_shape=(16, 8))
     """
-    fig = _build_tv_figure(layout, title=title, figsize=figsize,
-                           colorize=colorize, num_colors=num_colors,
-                           grid_shape=grid_shape, thr_id_layout=thr_id_layout,
-                           col_major=col_major)
+    fig = _build_tv_figure(
+        layout,
+        title=title,
+        figsize=figsize,
+        colorize=colorize,
+        num_colors=num_colors,
+        grid_shape=grid_shape,
+        thr_id_layout=thr_id_layout,
+        col_major=col_major,
+    )
     _save_figure(fig, filename, dpi)
 
 
-def _build_mma_figure(layout_a, layout_b, layout_c,
-                      tile_mnk=None, main_title=None,
-                      colorize=True, thr_id_layout=None):
+def _build_mma_figure(
+    layout_a,
+    layout_b,
+    layout_c,
+    tile_mnk=None,
+    main_title=None,
+    colorize=True,
+    thr_id_layout=None,
+):
     """Build the MMA figure used by draw_mma_layout/show_mma_layout."""
     # Infer M, N, K from tile_mnk or layout dimensions
     if tile_mnk:
@@ -1732,13 +2045,24 @@ def _build_mma_figure(layout_a, layout_b, layout_c,
 
     fig, ax = plt.subplots(figsize=(fig_width, fig_height))
 
-    def draw_tv_matrix(layout, offset_x, offset_y, matrix_rows, matrix_cols,
-                       title, title_above=True, col_major=True):
+    def draw_tv_matrix(
+        layout,
+        offset_x,
+        offset_y,
+        matrix_rows,
+        matrix_cols,
+        title,
+        title_above=True,
+        col_major=True,
+    ):
         try:
-            tv_map = _compute_tv_mapping(layout, grid_cols=matrix_cols,
-                                         grid_rows=matrix_rows,
-                                         thr_id_layout=thr_id_layout,
-                                         col_major=col_major)
+            tv_map = _compute_tv_mapping(
+                layout,
+                grid_cols=matrix_cols,
+                grid_rows=matrix_rows,
+                thr_id_layout=thr_id_layout,
+                col_major=col_major,
+            )
         except ValueError as exc:
             raise ValueError(
                 f"{title} layout does not fit within panel shape "
@@ -1747,15 +2071,37 @@ def _build_mma_figure(layout_a, layout_b, layout_c,
 
         if title:
             if title_above:
-                ax.text(offset_x + matrix_cols / 2, offset_y - 1.2, title,
-                        ha='center', va='bottom', fontsize=10, fontweight='bold')
+                ax.text(
+                    offset_x + matrix_cols / 2,
+                    offset_y - 1.2,
+                    title,
+                    ha="center",
+                    va="bottom",
+                    fontsize=10,
+                    fontweight="bold",
+                )
             else:
-                ax.text(offset_x + matrix_cols / 2, offset_y + matrix_rows + 0.6, title,
-                        ha='center', va='top', fontsize=10, fontweight='bold')
+                ax.text(
+                    offset_x + matrix_cols / 2,
+                    offset_y + matrix_rows + 0.6,
+                    title,
+                    ha="center",
+                    va="top",
+                    fontsize=10,
+                    fontweight="bold",
+                )
 
-        _draw_tv_cells(ax, tv_map, matrix_rows, matrix_cols, mma_colors,
-                       offset_x=offset_x, offset_y=offset_y,
-                       fontsize=6, linewidth=0.5)
+        _draw_tv_cells(
+            ax,
+            tv_map,
+            matrix_rows,
+            matrix_cols,
+            mma_colors,
+            offset_x=offset_x,
+            offset_y=offset_y,
+            fontsize=6,
+            linewidth=0.5,
+        )
 
     b_offset_x = K + gap
     b_offset_y = 0
@@ -1764,34 +2110,84 @@ def _build_mma_figure(layout_a, layout_b, layout_c,
     c_offset_x = K + gap
     c_offset_y = K + gap
 
-    draw_tv_matrix(layout_b, b_offset_x, b_offset_y, K, N, f"B ({K}×{N})", title_above=True, col_major=False)
-    draw_tv_matrix(layout_a, a_offset_x, a_offset_y, M, K, f"A ({M}×{K})", title_above=False)
-    draw_tv_matrix(layout_c, c_offset_x, c_offset_y, M, N, f"C ({M}×{N})", title_above=False)
+    draw_tv_matrix(
+        layout_b,
+        b_offset_x,
+        b_offset_y,
+        K,
+        N,
+        f"B ({K}×{N})",
+        title_above=True,
+        col_major=False,
+    )
+    draw_tv_matrix(
+        layout_a, a_offset_x, a_offset_y, M, K, f"A ({M}×{K})", title_above=False
+    )
+    draw_tv_matrix(
+        layout_c, c_offset_x, c_offset_y, M, N, f"C ({M}×{N})", title_above=False
+    )
 
     for k in range(K):
-        ax.text(b_offset_x - 0.4, k + 0.5, str(k), ha='right', va='center', fontsize=7, color='dimgray')
+        ax.text(
+            b_offset_x - 0.4,
+            k + 0.5,
+            str(k),
+            ha="right",
+            va="center",
+            fontsize=7,
+            color="dimgray",
+        )
     for n in range(N):
-        ax.text(b_offset_x + n + 0.5, -0.4, str(n), ha='center', va='bottom', fontsize=7, color='dimgray')
+        ax.text(
+            b_offset_x + n + 0.5,
+            -0.4,
+            str(n),
+            ha="center",
+            va="bottom",
+            fontsize=7,
+            color="dimgray",
+        )
     for m in range(M):
-        ax.text(a_offset_x - 0.4, a_offset_y + m + 0.5, str(m), ha='right', va='center', fontsize=7, color='dimgray')
+        ax.text(
+            a_offset_x - 0.4,
+            a_offset_y + m + 0.5,
+            str(m),
+            ha="right",
+            va="center",
+            fontsize=7,
+            color="dimgray",
+        )
     for k in range(K):
-        ax.text(a_offset_x + k + 0.5, a_offset_y - 0.4, str(k), ha='center', va='bottom', fontsize=7, color='dimgray')
+        ax.text(
+            a_offset_x + k + 0.5,
+            a_offset_y - 0.4,
+            str(k),
+            ha="center",
+            va="bottom",
+            fontsize=7,
+            color="dimgray",
+        )
 
     _setup_axes(ax, (-label_margin, total_width), (-label_margin, total_height))
 
     if main_title:
-        fig.suptitle(main_title, fontsize=14, fontweight='bold', y=0.98)
+        fig.suptitle(main_title, fontsize=14, fontweight="bold", y=0.98)
 
     plt.tight_layout()
     return fig
 
 
-def draw_mma_layout(layout_a, layout_b, layout_c, filename=None,
-                    tile_mnk: Optional[Tuple[int, int, int]] = None,
-                    main_title: Optional[str] = None,
-                    dpi: int = 150,
-                    colorize: bool = True,
-                    thr_id_layout=None):
+def draw_mma_layout(
+    layout_a,
+    layout_b,
+    layout_c,
+    filename=None,
+    tile_mnk: Optional[Tuple[int, int, int]] = None,
+    main_title: Optional[str] = None,
+    dpi: int = 150,
+    colorize: bool = True,
+    thr_id_layout=None,
+):
     """Draw MMA (Matrix Multiply-Accumulate) layout visualization.
 
     Renders A, B, and C matrices in the standard MMA arrangement:
@@ -1826,28 +2222,41 @@ def draw_mma_layout(layout_a, layout_b, layout_c, filename=None,
         draw_mma_layout(mma_a, mma_b, mma_c, "mma_16x8x8.svg",
                         tile_mnk=(16, 8, 8), main_title="MMA 16×8×8")
     """
-    fig = _build_mma_figure(layout_a, layout_b, layout_c,
-                            tile_mnk=tile_mnk, main_title=main_title,
-                            colorize=colorize, thr_id_layout=thr_id_layout)
+    fig = _build_mma_figure(
+        layout_a,
+        layout_b,
+        layout_c,
+        tile_mnk=tile_mnk,
+        main_title=main_title,
+        colorize=colorize,
+        thr_id_layout=thr_id_layout,
+    )
     _save_figure(fig, filename, dpi)
 
 
-def _build_tiled_grid_figure(grid: dict, rows: int, cols: int,
-                             title: Optional[str] = None):
+def _build_tiled_grid_figure(
+    grid: dict, rows: int, cols: int, title: Optional[str] = None
+):
     """Build the tiled-grid figure used by draw_tiled_grid/show_tiled_grid."""
     colors = _make_rainbow_palette(8)
     font = max(4, min(7, int(60 / max(rows, cols))))
     fig, ax = plt.subplots(figsize=(cols * 0.45 + 1.5, rows * 0.4 + 1.0))
-    _setup_axes(ax, (-0.5, cols + 0.5), (-0.5, rows + 0.5),
-                title=title, title_fontsize=9)
+    _setup_axes(
+        ax, (-0.5, cols + 0.5), (-0.5, rows + 0.5), title=title, title_fontsize=9
+    )
     _draw_tv_cells(ax, grid, rows, cols, colors, fontsize=font, linewidth=0.5)
     plt.tight_layout()
     return fig
 
 
-def draw_tiled_grid(grid: dict, rows: int, cols: int,
-                    filename=None, dpi: int = 150,
-                    title: Optional[str] = None):
+def draw_tiled_grid(
+    grid: dict,
+    rows: int,
+    cols: int,
+    filename=None,
+    dpi: int = 150,
+    title: Optional[str] = None,
+):
     """Draw a tiled MMA grid produced by tile_mma_grid().
 
     Each cell shows thread (T) and value (V) labels, colored by logical
@@ -1865,8 +2274,7 @@ def draw_tiled_grid(grid: dict, rows: int, cols: int,
     _save_figure(fig, filename, dpi)
 
 
-def _build_combined_grid_figure(a_grid, b_grid, c_grid,
-                                M, N, K, title=None):
+def _build_combined_grid_figure(a_grid, b_grid, c_grid, M, N, K, title=None):
     """Build a combined A/B/C figure from pre-computed grid dicts.
 
     Arranges three grid-dict panels in the standard MMA layout:
@@ -1883,31 +2291,58 @@ def _build_combined_grid_figure(a_grid, b_grid, c_grid,
     total_h = K + gap + M + label_margin
 
     scale = 0.35
-    fig, ax = plt.subplots(figsize=(total_w * scale + 1.5,
-                                    total_h * scale + 1.0))
+    fig, ax = plt.subplots(figsize=(total_w * scale + 1.5, total_h * scale + 1.0))
 
     b_ox, b_oy = K + gap, 0
     a_ox, a_oy = 0, K + gap
     c_ox, c_oy = K + gap, K + gap
 
-    _draw_tv_cells(ax, b_grid, K, N, colors, offset_x=b_ox, offset_y=b_oy,
-                   fontsize=font, linewidth=0.5)
-    _draw_tv_cells(ax, a_grid, M, K, colors, offset_x=a_ox, offset_y=a_oy,
-                   fontsize=font, linewidth=0.5)
-    _draw_tv_cells(ax, c_grid, M, N, colors, offset_x=c_ox, offset_y=c_oy,
-                   fontsize=font, linewidth=0.5)
+    _draw_tv_cells(
+        ax,
+        b_grid,
+        K,
+        N,
+        colors,
+        offset_x=b_ox,
+        offset_y=b_oy,
+        fontsize=font,
+        linewidth=0.5,
+    )
+    _draw_tv_cells(
+        ax,
+        a_grid,
+        M,
+        K,
+        colors,
+        offset_x=a_ox,
+        offset_y=a_oy,
+        fontsize=font,
+        linewidth=0.5,
+    )
+    _draw_tv_cells(
+        ax,
+        c_grid,
+        M,
+        N,
+        colors,
+        offset_x=c_ox,
+        offset_y=c_oy,
+        fontsize=font,
+        linewidth=0.5,
+    )
 
     _setup_axes(ax, (-label_margin, total_w), (-label_margin, total_h))
 
     if title:
-        fig.suptitle(title, fontsize=14, fontweight='bold', y=0.98)
+        fig.suptitle(title, fontsize=14, fontweight="bold", y=0.98)
 
     plt.tight_layout()
     return fig
 
 
-def draw_combined_mma_grid(a_grid, b_grid, c_grid, M, N, K,
-                           filename=None, dpi=150, title=None):
+def draw_combined_mma_grid(
+    a_grid, b_grid, c_grid, M, N, K, filename=None, dpi=150, title=None
+):
     """Draw combined A/B/C grid-dict panels in the standard MMA arrangement.
 
     This is the grid-dict counterpart of draw_mma_layout.  Use it when
@@ -1923,15 +2358,19 @@ def draw_combined_mma_grid(a_grid, b_grid, c_grid, M, N, K,
         dpi: output resolution
         title: plot title
     """
-    fig = _build_combined_grid_figure(a_grid, b_grid, c_grid, M, N, K,
-                                      title=title)
+    fig = _build_combined_grid_figure(a_grid, b_grid, c_grid, M, N, K, title=title)
     _save_figure(fig, filename, dpi)
 
 
-def _build_copy_figure(src_layout, dst_layout,
-                       grid_shape=None, title=None,
-                       colorize=True, thr_id_layout=None,
-                       col_major=True):
+def _build_copy_figure(
+    src_layout,
+    dst_layout,
+    grid_shape=None,
+    title=None,
+    colorize=True,
+    thr_id_layout=None,
+    col_major=True,
+):
     """Build a side-by-side src/dst copy layout figure.
 
     Matches CUTLASS print_latex_copy: two TV grids with the same coloring
@@ -1967,40 +2406,82 @@ def _build_copy_figure(src_layout, dst_layout,
     fig, ax = plt.subplots(figsize=(fig_width, fig_height))
 
     # Source grid (left)
-    src_map = _compute_tv_mapping(src_layout, grid_cols=cols, grid_rows=rows,
-                                  thr_id_layout=thr_id_layout,
-                                  col_major=col_major)
-    _draw_tv_cells(ax, src_map, rows, cols, colors,
-                   offset_x=0, offset_y=0,
-                   fontsize=6, linewidth=0.5)
-    ax.text(cols / 2, -0.6, "Src",
-            ha='center', va='bottom', fontsize=10, fontweight='bold')
+    src_map = _compute_tv_mapping(
+        src_layout,
+        grid_cols=cols,
+        grid_rows=rows,
+        thr_id_layout=thr_id_layout,
+        col_major=col_major,
+    )
+    _draw_tv_cells(
+        ax,
+        src_map,
+        rows,
+        cols,
+        colors,
+        offset_x=0,
+        offset_y=0,
+        fontsize=6,
+        linewidth=0.5,
+    )
+    ax.text(
+        cols / 2, -0.6, "Src", ha="center", va="bottom", fontsize=10, fontweight="bold"
+    )
 
     # Destination grid (right)
     dst_ox = cols + gap
-    dst_map = _compute_tv_mapping(dst_layout, grid_cols=cols, grid_rows=rows,
-                                  thr_id_layout=thr_id_layout,
-                                  col_major=col_major)
-    _draw_tv_cells(ax, dst_map, rows, cols, colors,
-                   offset_x=dst_ox, offset_y=0,
-                   fontsize=6, linewidth=0.5)
-    ax.text(dst_ox + cols / 2, -0.6, "Dst",
-            ha='center', va='bottom', fontsize=10, fontweight='bold')
+    dst_map = _compute_tv_mapping(
+        dst_layout,
+        grid_cols=cols,
+        grid_rows=rows,
+        thr_id_layout=thr_id_layout,
+        col_major=col_major,
+    )
+    _draw_tv_cells(
+        ax,
+        dst_map,
+        rows,
+        cols,
+        colors,
+        offset_x=dst_ox,
+        offset_y=0,
+        fontsize=6,
+        linewidth=0.5,
+    )
+    ax.text(
+        dst_ox + cols / 2,
+        -0.6,
+        "Dst",
+        ha="center",
+        va="bottom",
+        fontsize=10,
+        fontweight="bold",
+    )
 
-    _setup_axes(ax, (-label_margin, total_width - label_margin),
-                (-label_margin, total_height - label_margin))
+    _setup_axes(
+        ax,
+        (-label_margin, total_width - label_margin),
+        (-label_margin, total_height - label_margin),
+    )
 
     if title:
-        fig.suptitle(title, fontsize=12, fontweight='bold', y=0.98)
+        fig.suptitle(title, fontsize=12, fontweight="bold", y=0.98)
 
     plt.tight_layout()
     return fig
 
 
-def draw_copy_layout(src_layout, dst_layout, filename=None,
-                     grid_shape=None, title=None,
-                     dpi=150, colorize=True, thr_id_layout=None,
-                     col_major=True):
+def draw_copy_layout(
+    src_layout,
+    dst_layout,
+    filename=None,
+    grid_shape=None,
+    title=None,
+    dpi=150,
+    colorize=True,
+    thr_id_layout=None,
+    col_major=True,
+):
     """Draw a copy layout showing src and dst TV grids side by side.
 
     Matches CUTLASS print_latex_copy: same thread coloring on both panels
@@ -2028,10 +2509,15 @@ def draw_copy_layout(src_layout, dst_layout, filename=None,
         draw_copy_layout(src, dst, "ldsm_x4.svg",
                          grid_shape=(16, 16), title="SM75 LDMATRIX x4")
     """
-    fig = _build_copy_figure(src_layout, dst_layout,
-                             grid_shape=grid_shape, title=title,
-                             colorize=colorize, thr_id_layout=thr_id_layout,
-                             col_major=col_major)
+    fig = _build_copy_figure(
+        src_layout,
+        dst_layout,
+        grid_shape=grid_shape,
+        title=title,
+        colorize=colorize,
+        thr_id_layout=thr_id_layout,
+        col_major=col_major,
+    )
     _save_figure(fig, filename, dpi)
 
 
@@ -2050,10 +2536,13 @@ def _swizzle_figsize(linear_idx, swizzle_idx, rows, cols):
     return (cols * cell_w * 2 + 3, rows * 0.5 + 1.5)
 
 
-def _build_swizzle_figure(base_layout, swizzle,
-                          figsize: Optional[Tuple[float, float]] = None,
-                          colorize: bool = False,
-                          num_colors: int = 8):
+def _build_swizzle_figure(
+    base_layout,
+    swizzle,
+    figsize: Optional[Tuple[float, float]] = None,
+    colorize: bool = False,
+    num_colors: int = 8,
+):
     """Build the swizzle comparison figure used by draw_swizzle/show_swizzle."""
     sw_layout = compose(swizzle, base_layout)
 
@@ -2081,30 +2570,48 @@ def _build_swizzle_figure(base_layout, swizzle,
             figsize = _swizzle_figsize(linear_idx, swizzle_idx, rows, cols)
 
     def _swizzle_color_indices(idx_array):
-        return np.vectorize(lambda v: (int(v) >> bit_shift) % effective_colors)(idx_array)
+        return np.vectorize(lambda v: (int(v) >> bit_shift) % effective_colors)(
+            idx_array
+        )
 
     linear_ci = _swizzle_color_indices(linear_idx)
     swizzle_ci = _swizzle_color_indices(swizzle_idx)
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
-    _draw_grid(ax1, linear_idx, title=f"Linear: {base_layout}",
-               colorize=colorize, color_indices=linear_ci,
-               num_colors=effective_colors,
-               label_color='gray', label_fontsize=7)
-    _draw_grid(ax2, swizzle_idx, title=f"Swizzled: {swizzle}",
-               colorize=colorize, color_indices=swizzle_ci,
-               num_colors=effective_colors,
-               label_color='gray', label_fontsize=7)
+    _draw_grid(
+        ax1,
+        linear_idx,
+        title=f"Linear: {base_layout}",
+        colorize=colorize,
+        color_indices=linear_ci,
+        num_colors=effective_colors,
+        label_color="gray",
+        label_fontsize=7,
+    )
+    _draw_grid(
+        ax2,
+        swizzle_idx,
+        title=f"Swizzled: {swizzle}",
+        colorize=colorize,
+        color_indices=swizzle_ci,
+        num_colors=effective_colors,
+        label_color="gray",
+        label_fontsize=7,
+    )
 
     plt.tight_layout()
     return fig
 
 
-def draw_swizzle(base_layout, swizzle, filename=None,
-                 dpi: int = 150,
-                 figsize: Optional[Tuple[float, float]] = None,
-                 colorize: bool = False,
-                 num_colors: int = 8):
+def draw_swizzle(
+    base_layout,
+    swizzle,
+    filename=None,
+    dpi: int = 150,
+    figsize: Optional[Tuple[float, float]] = None,
+    colorize: bool = False,
+    num_colors: int = 8,
+):
     """Draw side-by-side comparison of linear vs swizzled layout.
 
     For swizzles with base=0 (affecting low bits), colors by value % num_colors
@@ -2125,10 +2632,9 @@ def draw_swizzle(base_layout, swizzle, filename=None,
         colorize: If True, use rainbow colors (makes swizzle movement clearer)
         num_colors: Number of colors in palette
     """
-    fig = _build_swizzle_figure(base_layout, swizzle,
-                                figsize=figsize,
-                                colorize=colorize,
-                                num_colors=num_colors)
+    fig = _build_swizzle_figure(
+        base_layout, swizzle, figsize=figsize, colorize=colorize, num_colors=num_colors
+    )
     _save_figure(fig, filename, dpi)
 
 
@@ -2189,11 +2695,15 @@ def _match_nested_slice_component(coord, spec, shape) -> bool:
         return coord == spec
     if isinstance(spec, slice):
         if is_tuple(coord):
-            raise TypeError(f"Slice spec {spec} requires a scalar coordinate, got {coord!r}")
+            raise TypeError(
+                f"Slice spec {spec} requires a scalar coordinate, got {coord!r}"
+            )
         return coord in range(*spec.indices(shape))
     if is_tuple(spec):
         if not is_tuple(coord) or not is_tuple(shape):
-            raise TypeError(f"Tuple spec {spec!r} is incompatible with coordinate {coord!r}")
+            raise TypeError(
+                f"Tuple spec {spec!r} is incompatible with coordinate {coord!r}"
+            )
         if len(spec) != len(coord) or len(spec) != len(shape):
             raise ValueError(
                 f"Tuple spec length {len(spec)} does not match coordinate/shape lengths "
@@ -2247,8 +2757,8 @@ def _get_slice_highlight_mask_2d(layout, slice_spec) -> np.ndarray:
             row_coord = idx2crd(i, row_shape)
             row_match = (
                 _match_flat_slice_component(i, row_spec, rows)
-                if row_flat else
-                _match_nested_slice_component(row_coord, row_spec, row_shape)
+                if row_flat
+                else _match_nested_slice_component(row_coord, row_spec, row_shape)
             )
             if not row_match:
                 continue
@@ -2257,8 +2767,8 @@ def _get_slice_highlight_mask_2d(layout, slice_spec) -> np.ndarray:
                 col_coord = idx2crd(j, col_shape)
                 col_match = (
                     _match_flat_slice_component(j, col_spec, cols)
-                    if col_flat else
-                    _match_nested_slice_component(col_coord, col_spec, col_shape)
+                    if col_flat
+                    else _match_nested_slice_component(col_coord, col_spec, col_shape)
                 )
                 if col_match:
                     mask[i, j] = True
@@ -2266,13 +2776,19 @@ def _get_slice_highlight_mask_2d(layout, slice_spec) -> np.ndarray:
     return mask
 
 
-def _build_slice_figure(layout, slice_spec,
-                        title=None, figsize=None,
-                        colorize=False, color_layout=None,
-                        num_colors=8):
+def _build_slice_figure(
+    layout,
+    slice_spec,
+    title=None,
+    figsize=None,
+    colorize=False,
+    color_layout=None,
+    num_colors=8,
+):
     """Build the slice figure used by draw_slice/show_slice."""
-    grid = _prepare_offset_grid(layout, color_layout=color_layout,
-                                slice_spec=slice_spec)
+    grid = _prepare_offset_grid(
+        layout, color_layout=color_layout, slice_spec=slice_spec
+    )
 
     if figsize is None:
         figsize = (grid.cols * 0.5 + 1, grid.rows * 0.5 + 1)
@@ -2281,19 +2797,29 @@ def _build_slice_figure(layout, slice_spec,
         title = f"{layout}[{slice_spec}]"
 
     fig, ax = plt.subplots(figsize=figsize)
-    _draw_grid(ax, grid.indices, highlight_mask=grid.highlight_mask,
-               title=title, colorize=colorize,
-               color_indices=grid.color_indices, num_colors=num_colors)
+    _draw_grid(
+        ax,
+        grid.indices,
+        highlight_mask=grid.highlight_mask,
+        title=title,
+        colorize=colorize,
+        color_indices=grid.color_indices,
+        num_colors=num_colors,
+    )
     return fig
 
 
-def draw_slice(layout, slice_spec, filename=None,
-               title: Optional[str] = None,
-               dpi: int = 150,
-               figsize: Optional[Tuple[float, float]] = None,
-               colorize: bool = False,
-               color_layout: Optional[Layout] = None,
-               num_colors: int = 8):
+def draw_slice(
+    layout,
+    slice_spec,
+    filename=None,
+    title: Optional[str] = None,
+    dpi: int = 150,
+    figsize: Optional[Tuple[float, float]] = None,
+    colorize: bool = False,
+    color_layout: Optional[Layout] = None,
+    num_colors: int = 8,
+):
     """Draw layout with sliced elements highlighted.
 
     Args:
@@ -2312,20 +2838,29 @@ def draw_slice(layout, slice_spec, filename=None,
             the same logical coordinate space as `layout` (None = color by value)
         num_colors: Number of colors in palette
     """
-    fig = _build_slice_figure(layout, slice_spec, title=title, figsize=figsize,
-                              colorize=colorize, color_layout=color_layout,
-                              num_colors=num_colors)
+    fig = _build_slice_figure(
+        layout,
+        slice_spec,
+        title=title,
+        figsize=figsize,
+        colorize=colorize,
+        color_layout=color_layout,
+        num_colors=num_colors,
+    )
     _save_figure(fig, filename, dpi)
 
 
-def show_layout(layout, title: Optional[str] = None,
-                figsize: Optional[Tuple[float, float]] = None,
-                colorize: bool = False,
-                color_layout: Optional[Layout] = None,
-                color_by: Optional[str] = None,
-                num_colors: int = 8,
-                flatten_hierarchical: bool = True,
-                label_hierarchy_levels: bool = False):
+def show_layout(
+    layout,
+    title: Optional[str] = None,
+    figsize: Optional[Tuple[float, float]] = None,
+    colorize: bool = False,
+    color_layout: Optional[Layout] = None,
+    color_by: Optional[str] = None,
+    num_colors: int = 8,
+    flatten_hierarchical: bool = True,
+    label_hierarchy_levels: bool = False,
+):
     """Display a layout or tensor inline (for Jupyter notebooks).
 
     Args:
@@ -2347,17 +2882,26 @@ def show_layout(layout, title: Optional[str] = None,
     Returns:
         matplotlib Figure
     """
-    return _build_layout_figure(layout, title=title, figsize=figsize,
-                                colorize=colorize, color_layout=color_layout,
-                                color_by=color_by, num_colors=num_colors,
-                                flatten_hierarchical=flatten_hierarchical,
-                                label_hierarchy_levels=label_hierarchy_levels)
+    return _build_layout_figure(
+        layout,
+        title=title,
+        figsize=figsize,
+        colorize=colorize,
+        color_layout=color_layout,
+        color_by=color_by,
+        num_colors=num_colors,
+        flatten_hierarchical=flatten_hierarchical,
+        label_hierarchy_levels=label_hierarchy_levels,
+    )
 
 
-def show_swizzle(base_layout, swizzle,
-                 figsize: Optional[Tuple[float, float]] = None,
-                 colorize: bool = False,
-                 num_colors: int = 8):
+def show_swizzle(
+    base_layout,
+    swizzle,
+    figsize: Optional[Tuple[float, float]] = None,
+    colorize: bool = False,
+    num_colors: int = 8,
+):
     """Display swizzle comparison inline (for Jupyter notebooks).
 
     Colors by the bits that the swizzle affects: (value >> swizzle.base) % num_colors.
@@ -2372,16 +2916,20 @@ def show_swizzle(base_layout, swizzle,
     Returns:
         matplotlib Figure
     """
-    return _build_swizzle_figure(base_layout, swizzle,
-                                 figsize=figsize,
-                                 colorize=colorize,
-                                 num_colors=num_colors)
+    return _build_swizzle_figure(
+        base_layout, swizzle, figsize=figsize, colorize=colorize, num_colors=num_colors
+    )
 
 
-def show_copy_layout(src_layout, dst_layout,
-                     grid_shape=None, title=None,
-                     colorize=True, thr_id_layout=None,
-                     col_major=True):
+def show_copy_layout(
+    src_layout,
+    dst_layout,
+    grid_shape=None,
+    title=None,
+    colorize=True,
+    thr_id_layout=None,
+    col_major=True,
+):
     """Display a copy layout inline (for Jupyter notebooks).
 
     Args:
@@ -2399,16 +2947,27 @@ def show_copy_layout(src_layout, dst_layout,
     Returns:
         matplotlib Figure
     """
-    return _build_copy_figure(src_layout, dst_layout,
-                              grid_shape=grid_shape, title=title,
-                              colorize=colorize, thr_id_layout=thr_id_layout,
-                              col_major=col_major)
+    return _build_copy_figure(
+        src_layout,
+        dst_layout,
+        grid_shape=grid_shape,
+        title=title,
+        colorize=colorize,
+        thr_id_layout=thr_id_layout,
+        col_major=col_major,
+    )
 
 
-def draw_copy_atom(atom, element_bits: int = 16, filename=None,
-                   grid_shape=None, title=None,
-                   dpi: int = 150, colorize: bool = True,
-                   col_major: bool = True):
+def draw_copy_atom(
+    atom,
+    element_bits: int = 16,
+    filename=None,
+    grid_shape=None,
+    title=None,
+    dpi: int = 150,
+    colorize: bool = True,
+    col_major: bool = True,
+):
     """Draw a CopyAtom by converting bit layouts to element coordinates.
 
     Convenience wrapper around draw_copy_layout that handles the upcast
@@ -2426,17 +2985,27 @@ def draw_copy_atom(atom, element_bits: int = 16, filename=None,
     """
     src = upcast(atom.src_layout_bits, element_bits)
     dst = upcast(atom.dst_layout_bits, element_bits)
-    draw_copy_layout(src, dst, filename=filename,
-                     grid_shape=grid_shape,
-                     title=title or f"{atom.name}  ({atom.ptx})",
-                     dpi=dpi, colorize=colorize,
-                     thr_id_layout=atom.thr_id,
-                     col_major=col_major)
+    draw_copy_layout(
+        src,
+        dst,
+        filename=filename,
+        grid_shape=grid_shape,
+        title=title or f"{atom.name}  ({atom.ptx})",
+        dpi=dpi,
+        colorize=colorize,
+        thr_id_layout=atom.thr_id,
+        col_major=col_major,
+    )
 
 
-def show_copy_atom(atom, element_bits: int = 16,
-                   grid_shape=None, title=None,
-                   colorize: bool = True, col_major: bool = True):
+def show_copy_atom(
+    atom,
+    element_bits: int = 16,
+    grid_shape=None,
+    title=None,
+    colorize: bool = True,
+    col_major: bool = True,
+):
     """Display a CopyAtom inline (for Jupyter notebooks).
 
     Convenience wrapper around show_copy_layout that handles the upcast
@@ -2455,21 +3024,27 @@ def show_copy_atom(atom, element_bits: int = 16,
     """
     src = upcast(atom.src_layout_bits, element_bits)
     dst = upcast(atom.dst_layout_bits, element_bits)
-    return show_copy_layout(src, dst,
-                            grid_shape=grid_shape,
-                            title=title or f"{atom.name}  ({atom.ptx})",
-                            colorize=colorize,
-                            thr_id_layout=atom.thr_id,
-                            col_major=col_major)
+    return show_copy_layout(
+        src,
+        dst,
+        grid_shape=grid_shape,
+        title=title or f"{atom.name}  ({atom.ptx})",
+        colorize=colorize,
+        thr_id_layout=atom.thr_id,
+        col_major=col_major,
+    )
 
 
-def show_tv_layout(layout, title: Optional[str] = None,
-                   figsize: Optional[Tuple[float, float]] = None,
-                   colorize: bool = False,
-                   num_colors: Optional[int] = None,
-                   grid_shape: Optional[Tuple[int, int]] = None,
-                   thr_id_layout=None,
-                   col_major: bool = True):
+def show_tv_layout(
+    layout,
+    title: Optional[str] = None,
+    figsize: Optional[Tuple[float, float]] = None,
+    colorize: bool = False,
+    num_colors: Optional[int] = None,
+    grid_shape: Optional[Tuple[int, int]] = None,
+    thr_id_layout=None,
+    col_major: bool = True,
+):
     """Display a TV layout inline (for Jupyter notebooks).
 
     Args:
@@ -2488,15 +3063,27 @@ def show_tv_layout(layout, title: Optional[str] = None,
     Returns:
         matplotlib Figure
     """
-    return _build_tv_figure(layout, title=title, figsize=figsize,
-                            colorize=colorize, num_colors=num_colors,
-                            grid_shape=grid_shape, thr_id_layout=thr_id_layout,
-                            col_major=col_major)
+    return _build_tv_figure(
+        layout,
+        title=title,
+        figsize=figsize,
+        colorize=colorize,
+        num_colors=num_colors,
+        grid_shape=grid_shape,
+        thr_id_layout=thr_id_layout,
+        col_major=col_major,
+    )
 
 
-def show_mma_layout(layout_a, layout_b, layout_c,
-                    tile_mnk=None, main_title=None,
-                    colorize=True, thr_id_layout=None):
+def show_mma_layout(
+    layout_a,
+    layout_b,
+    layout_c,
+    tile_mnk=None,
+    main_title=None,
+    colorize=True,
+    thr_id_layout=None,
+):
     """Display an MMA layout inline (for Jupyter notebooks).
 
     Args:
@@ -2511,13 +3098,18 @@ def show_mma_layout(layout_a, layout_b, layout_c,
     Returns:
         matplotlib Figure
     """
-    return _build_mma_figure(layout_a, layout_b, layout_c,
-                             tile_mnk=tile_mnk, main_title=main_title,
-                             colorize=colorize, thr_id_layout=thr_id_layout)
+    return _build_mma_figure(
+        layout_a,
+        layout_b,
+        layout_c,
+        tile_mnk=tile_mnk,
+        main_title=main_title,
+        colorize=colorize,
+        thr_id_layout=thr_id_layout,
+    )
 
 
-def show_tiled_grid(grid: dict, rows: int, cols: int,
-                    title: Optional[str] = None):
+def show_tiled_grid(grid: dict, rows: int, cols: int, title: Optional[str] = None):
     """Display a tiled MMA grid inline (for Jupyter notebooks).
 
     Args:
@@ -2532,8 +3124,7 @@ def show_tiled_grid(grid: dict, rows: int, cols: int,
     return _build_tiled_grid_figure(grid, rows, cols, title=title)
 
 
-def show_combined_mma_grid(a_grid, b_grid, c_grid, M, N, K,
-                           title=None):
+def show_combined_mma_grid(a_grid, b_grid, c_grid, M, N, K, title=None):
     """Display combined A/B/C grid-dict panels inline (for Jupyter).
 
     Args:
@@ -2546,15 +3137,18 @@ def show_combined_mma_grid(a_grid, b_grid, c_grid, M, N, K,
     Returns:
         matplotlib Figure
     """
-    return _build_combined_grid_figure(a_grid, b_grid, c_grid, M, N, K,
-                                       title=title)
+    return _build_combined_grid_figure(a_grid, b_grid, c_grid, M, N, K, title=title)
 
 
-def show_slice(layout, slice_spec, title: Optional[str] = None,
-               figsize: Optional[Tuple[float, float]] = None,
-               colorize: bool = False,
-               color_layout: Optional[Layout] = None,
-               num_colors: int = 8):
+def show_slice(
+    layout,
+    slice_spec,
+    title: Optional[str] = None,
+    figsize: Optional[Tuple[float, float]] = None,
+    colorize: bool = False,
+    color_layout: Optional[Layout] = None,
+    num_colors: int = 8,
+):
     """Display a layout slice inline (for Jupyter notebooks).
 
     Args:
@@ -2569,18 +3163,26 @@ def show_slice(layout, slice_spec, title: Optional[str] = None,
     Returns:
         matplotlib Figure
     """
-    return _build_slice_figure(layout, slice_spec, title=title, figsize=figsize,
-                               colorize=colorize, color_layout=color_layout,
-                               num_colors=num_colors)
+    return _build_slice_figure(
+        layout,
+        slice_spec,
+        title=title,
+        figsize=figsize,
+        colorize=colorize,
+        color_layout=color_layout,
+        num_colors=num_colors,
+    )
 
 
-def show_composite(panels: list,
-                   arrangement: str = "horizontal",
-                   titles: Optional[list] = None,
-                   main_title: Optional[str] = None,
-                   panel_size: Tuple[float, float] = (4, 4),
-                   colorize: bool = False,
-                   tv_mode: bool = False):
+def show_composite(
+    panels: list,
+    arrangement: str = "horizontal",
+    titles: Optional[list] = None,
+    main_title: Optional[str] = None,
+    panel_size: Tuple[float, float] = (4, 4),
+    colorize: bool = False,
+    tv_mode: bool = False,
+):
     """Display a composite figure inline (for Jupyter notebooks).
 
     Args:
@@ -2595,19 +3197,26 @@ def show_composite(panels: list,
     Returns:
         matplotlib Figure
     """
-    return _build_composite_figure(panels, arrangement=arrangement,
-                                   titles=titles, main_title=main_title,
-                                   panel_size=panel_size, colorize=colorize,
-                                   tv_mode=tv_mode)
+    return _build_composite_figure(
+        panels,
+        arrangement=arrangement,
+        titles=titles,
+        main_title=main_title,
+        panel_size=panel_size,
+        colorize=colorize,
+        tv_mode=tv_mode,
+    )
 
 
 # =============================================================================
 # Demo
 # =============================================================================
 
+
 def demo(output_dir: str = "."):
     """Generate example visualizations in all formats."""
     from pathlib import Path
+
     from .layouts import logical_divide
 
     output = Path(output_dir)
@@ -2676,4 +3285,5 @@ def demo(output_dir: str = "."):
 
 if __name__ == "__main__":
     import sys
+
     demo(sys.argv[1] if len(sys.argv) > 1 else "./viz_output")
