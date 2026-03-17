@@ -396,14 +396,26 @@ draw_combined_mma_grid(a_grid, b_grid, c_grid, M, N, K,
 
 ## Jupyter Inline Display
 
-`show_layout` and `show_swizzle` display inline and return the matplotlib
-`Figure`:
+Every `draw_*` function has a corresponding `show_*` that displays inline
+and returns the matplotlib `Figure`:
+
+| `draw_*` | `show_*` |
+|----------|----------|
+| `draw_layout` | `show_layout` |
+| `draw_swizzle` | `show_swizzle` |
+| `draw_tv_layout` | `show_tv_layout` |
+| `draw_mma_layout` | `show_mma_layout` |
+| `draw_tiled_grid` | `show_tiled_grid` |
+| `draw_copy_layout` | `show_copy_layout` |
+| `draw_combined_mma_grid` | `show_combined_mma_grid` |
+| `draw_slice` | `show_slice` |
 
 ```python
-from layout_algebra.viz import show_layout, show_swizzle
+from layout_algebra.viz import show_layout, show_swizzle, show_tv_layout
 
 fig = show_layout(Layout((8, 8), (8, 1)), colorize=True)
 fig = show_swizzle(Layout((8, 8), (8, 1)), Swizzle(3, 0, 3))
+fig = show_tv_layout(Layout((4, 2), (2, 1)), colorize=True)
 ```
 
 | `show_layout` | `show_swizzle` |
