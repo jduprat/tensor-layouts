@@ -252,6 +252,18 @@ def _get_color_indices_2d(layout, color_layout) -> Optional[np.ndarray]:
 # Core drawing functions
 # =============================================================================
 
+def _setup_axes(ax, x_range: Tuple[float, float], y_range: Tuple[float, float],
+                title: Optional[str] = None, title_fontsize: float = 10):
+    """Configure axes for a cell-grid visualization."""
+    ax.set_xlim(*x_range)
+    ax.set_ylim(*y_range)
+    ax.set_aspect('equal')
+    ax.invert_yaxis()
+    ax.axis('off')
+    if title:
+        ax.set_title(title, fontsize=title_fontsize, fontweight='bold', pad=10)
+
+
 def _draw_grid(ax, indices: np.ndarray,
                highlight: Optional[Set[int]] = None,
                highlight_mask: Optional[np.ndarray] = None,
@@ -291,14 +303,7 @@ def _draw_grid(ax, indices: np.ndarray,
     else:
         colors = _make_grayscale_palette(num_shades)
 
-    ax.set_xlim(-0.5, cols + 0.5)
-    ax.set_ylim(-0.5, rows + 0.5)
-    ax.set_aspect('equal')
-    ax.invert_yaxis()
-    ax.axis('off')
-
-    if title:
-        ax.set_title(title, fontsize=10, fontweight='bold', pad=10)
+    _setup_axes(ax, (-0.5, cols + 0.5), (-0.5, rows + 0.5), title=title)
 
     final_facecolors = np.empty((rows, cols), dtype=object)
     highlighted_cells = []
@@ -914,14 +919,7 @@ def _draw_hierarchical_grid(ax, layout,
         row_label_band_spacing=row_label_band_spacing,
         col_label_band_spacing=col_label_band_spacing,
     )
-    ax.set_xlim(-left_margin, cols + 0.5)
-    ax.set_ylim(-top_margin, rows + 0.5)
-    ax.set_aspect('equal')
-    ax.invert_yaxis()
-    ax.axis('off')
-
-    if title:
-        ax.set_title(title, fontsize=10, fontweight='bold', pad=10)
+    _setup_axes(ax, (-left_margin, cols + 0.5), (-top_margin, rows + 0.5), title=title)
 
     max_levels = max(n_row_levels, n_col_levels, 1)
     coord_fontsize = max(3.2, 5.5 - 0.45 * (max_levels - 1))
@@ -1266,18 +1264,13 @@ def _draw_tv_grid(ax, layout,
         colors = _make_grayscale_palette(n_colors)
 
     # Set up axes with label margin
-    ax.set_xlim(-label_margin, cols + label_margin)
-    ax.set_ylim(-label_margin, rows + label_margin)
-    ax.set_aspect('equal')
-    ax.invert_yaxis()
-    ax.axis('off')
+    _setup_axes(ax, (-label_margin, cols + label_margin),
+                (-label_margin, rows + label_margin),
+                title=title if title_position == "top" else None)
 
-    if title:
-        if title_position == "top":
-            ax.set_title(title, fontsize=10, fontweight='bold', pad=10)
-        else:  # "bottom"
-            ax.text(cols / 2, rows + 0.5, title,
-                    ha='center', va='top', fontsize=10, fontweight='bold')
+    if title and title_position != "top":
+        ax.text(cols / 2, rows + 0.5, title,
+                ha='center', va='top', fontsize=10, fontweight='bold')
 
     # Draw each cell
     _draw_tv_cells(ax, tv_map, rows, cols, colors, cell_size)
@@ -1493,11 +1486,7 @@ def draw_mma_layout(layout_a, layout_b, layout_c, filename=None,
         ax.text(a_offset_x + k + 0.5, a_offset_y - 0.4, str(k), ha='center', va='bottom', fontsize=7, color='dimgray')
 
     # Set axes limits with some padding
-    ax.set_xlim(-label_margin, total_width)
-    ax.set_ylim(-label_margin, total_height)
-    ax.set_aspect('equal')
-    ax.invert_yaxis()
-    ax.axis('off')
+    _setup_axes(ax, (-label_margin, total_width), (-label_margin, total_height))
 
     if main_title:
         fig.suptitle(main_title, fontsize=14, fontweight='bold', y=0.98)
@@ -1525,13 +1514,8 @@ def draw_tiled_grid(grid: dict, rows: int, cols: int,
     colors = _make_rainbow_palette(8)
     font = max(4, min(7, int(60 / max(rows, cols))))
     fig, ax = plt.subplots(figsize=(cols * 0.45 + 1.5, rows * 0.4 + 1.0))
-    ax.set_xlim(-0.5, cols + 0.5)
-    ax.set_ylim(-0.5, rows + 0.5)
-    ax.set_aspect('equal')
-    ax.invert_yaxis()
-    ax.axis('off')
-    if title:
-        ax.set_title(title, fontsize=9, fontweight='bold', pad=8)
+    _setup_axes(ax, (-0.5, cols + 0.5), (-0.5, rows + 0.5),
+                title=title, title_fontsize=9)
     _draw_tv_cells(ax, grid, rows, cols, colors, fontsize=font, linewidth=0.5)
     plt.tight_layout()
     _save_figure(fig, filename, dpi)
