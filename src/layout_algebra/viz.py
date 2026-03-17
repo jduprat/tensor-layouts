@@ -1243,8 +1243,98 @@ def _build_layout_figure(layout,
                              f"(expected 'row', 'column', or 'offset')")
         colorize = True
 
-    # Check if this is a hierarchical layout (has nested tuple shapes)
+    # Rank >= 3: decompose into multiple 2D panels along the leading mode(s)
     r = rank(layout)
+    if r >= 3:
+        # Group all leading modes (0..r-3) into a flat slice index,
+        # keeping the last two modes as the 2D grid per panel.
+        outer_sizes = [size(mode(layout.shape, i)) for i in range(r - 2)]
+        n_panels = 1
+        for s in outer_sizes:
+            n_panels *= s
+        inner_shape = as_shape(tuple(
+            mode(layout.shape, i) for i in range(r - 2, r)))
+        inner_stride = as_shape(tuple(
+            mode(layout.stride, i) for i in range(r - 2, r)))
+
+        # Build per-panel sub-layouts and eval functions
+        sub_layouts = []
+        sub_evals = []
+        panel_titles = []
+        for flat_idx in range(n_panels):
+            outer_coord = idx2crd(flat_idx, as_shape(outer_sizes))
+            if not isinstance(outer_coord, tuple):
+                outer_coord = (outer_coord,)
+
+            # Offset contribution from fixed outer modes
+            offset = 0
+            for dim_idx, coord_val in enumerate(outer_coord):
+                m = mode(layout, dim_idx)
+                offset += crd2offset(coord_val, m.shape, m.stride)
+
+            sub = Layout(inner_shape, inner_stride, swizzle=layout.swizzle)
+            sub_layouts.append(sub)
+
+            # Eval function: offset + sub_layout(coord), optionally with swizzle
+            _off = offset
+            _sub = sub
+            if layout.swizzle is not None:
+                _sw = layout.swizzle
+                def _make_eval(o, s, sw):
+                    def fn(*args):
+                        coord = args[0] if len(args) == 1 else args
+                        linear = o + crd2offset(coord, s.shape, s.stride)
+                        return sw(linear)
+                    return fn
+                sub_evals.append(_make_eval(_off, _sub, _sw))
+            else:
+                def _make_eval_plain(o, s):
+                    def fn(*args):
+                        coord = args[0] if len(args) == 1 else args
+                        return o + crd2offset(coord, s.shape, s.stride)
+                    return fn
+                sub_evals.append(_make_eval_plain(_off, _sub))
+
+            if len(outer_sizes) == 1:
+                panel_titles.append(f"mode[0]={outer_coord[0]}")
+            else:
+                coord_str = ", ".join(str(c) for c in outer_coord)
+                panel_titles.append(f"outer=({coord_str})")
+
+        # Render panels using subplots
+        ncols = min(n_panels, 4)
+        nrows = (n_panels + ncols - 1) // ncols
+        panel_size = (3.5, 3.5)
+        if figsize is None:
+            figsize = (ncols * panel_size[0], nrows * panel_size[1])
+
+        fig, axes_array = plt.subplots(nrows, ncols, figsize=figsize)
+        if n_panels == 1:
+            axes = [axes_array]
+        elif nrows == 1 or ncols == 1:
+            axes = list(axes_array)
+        else:
+            axes = [axes_array[i, j]
+                    for i in range(nrows) for j in range(ncols)]
+
+        for idx in range(n_panels):
+            grid = _prepare_offset_grid(sub_layouts[idx],
+                                        color_layout=color_layout,
+                                        eval_fn=sub_evals[idx])
+            _draw_grid(axes[idx], grid.indices,
+                       title=panel_titles[idx],
+                       colorize=colorize,
+                       color_indices=grid.color_indices,
+                       num_colors=num_colors)
+
+        for idx in range(n_panels, len(axes)):
+            axes[idx].axis('off')
+
+        fig.suptitle(title or str(layout), fontsize=12, fontweight='bold')
+        plt.tight_layout()
+        return fig
+
+    # Check if this is a hierarchical layout (has nested tuple shapes)
     is_hierarchical = (r == 2 and
                        (isinstance(mode(layout.shape, 0), tuple) or
                         isinstance(mode(layout.shape, 1), tuple)))

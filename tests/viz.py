@@ -27,7 +27,9 @@ import pytest
 
 from layout_algebra import Layout, Swizzle
 from layout_algebra.tensor import Tensor
-from layout_algebra.layouts import mode
+from layout_algebra.layouts import (
+    mode, rank, flat_divide, tiled_divide, flat_product,
+)
 from layout_algebra.atoms_amd import (
     CDNA3P_16x16x32_F32F16F16_MFMA,
     CDNA3_32x32x16_F32F8F8_MFMA,
@@ -233,6 +235,64 @@ def test_color_by_and_color_layout_exclusive():
         show_layout(Layout((4, 4), (4, 1)),
                     color_by="row",
                     color_layout=Layout((4, 4), (1, 0)))
+
+
+@requires_viz
+def test_rank3_layout_produces_multi_panel():
+    """Rank-3 layout from flat_divide renders as multiple 2D panels."""
+    matrix = Layout((8, 8), (8, 1))
+    divided = flat_divide(matrix, Layout(2, 1))
+    assert rank(divided) == 3
+    fig = show_layout(divided)
+    try:
+        # shape=(2, 4, 8) → 2 panels of 4×8
+        with_content = [ax for ax in fig.axes if len(ax.patches) > 0]
+        assert len(with_content) == 2
+    finally:
+        plt.close(fig)
+
+
+@requires_viz
+def test_rank3_panel_values_match_layout():
+    """Each rank-3 panel shows correct offset values."""
+    matrix = Layout((8, 8), (8, 1))
+    divided = flat_divide(matrix, Layout(2, 1))
+    fig = show_layout(divided)
+    try:
+        def _cell_val(ax, x, y):
+            for t in ax.texts:
+                tx = round(t.get_position()[0], 1)
+                ty = round(t.get_position()[1], 1)
+                if tx == x and ty == y:
+                    try:
+                        return int(t.get_text())
+                    except ValueError:
+                        pass
+            return None
+
+        # Panel 0: divided(0, 0, 0)
+        assert _cell_val(fig.axes[0], 0.5, 0.5) == divided(0, 0, 0)
+        # Panel 1: divided(1, 0, 0)
+        assert _cell_val(fig.axes[1], 0.5, 0.5) == divided(1, 0, 0)
+    finally:
+        plt.close(fig)
+
+
+@requires_viz
+def test_rank4_layout_renders():
+    """Rank-4 layout renders with multiple panels (outer modes flattened)."""
+    # tiled_divide produces rank-3 with nested shape in mode 0;
+    # flat_product can produce rank-3. Stack to get rank-4+.
+    # Use a simple manual rank-4 layout:
+    L = Layout((2, 3, 4, 5), (60, 20, 5, 1))
+    assert rank(L) == 4
+    fig = show_layout(L)
+    try:
+        # 2*3=6 panels of 4×5
+        with_content = [ax for ax in fig.axes if len(ax.patches) > 0]
+        assert len(with_content) == 6
+    finally:
+        plt.close(fig)
 
 
 @requires_viz
