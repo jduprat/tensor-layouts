@@ -82,6 +82,31 @@ All query functions work on layouts, tuples, and ints.
 | `append(L, M)` | Add mode M after L's modes |
 | `prepend(L, M)` | Add mode M before L's modes |
 | `group(L, i, j)` | Nest modes i..j into a single hierarchical mode |
+| `upcast(L, n)` | Reinterpret from finer to coarser coordinates (÷ n) |
+| `downcast(L, n)` | Reinterpret from coarser to finer coordinates (× n) |
+
+### upcast / downcast
+
+`upcast(layout, n)` reinterprets a layout from a finer coordinate space to
+a coarser one.  Mirrors CuTe's `upcast<N>`.  The typical use is converting
+a layout in **bit** coordinates to **element** coordinates by dividing by
+the element width in bits.
+
+For the stride-1 (innermost) mode, the shape shrinks by `n`.  All strides
+are divided by `n`.  `downcast` is the inverse.
+
+```python
+from layout_algebra import Layout, upcast, downcast
+
+# Bit layout for SM75 LDMATRIX x4 (dst side)
+bits = Layout((32, (32, 4)), (32, (1, 1024)))
+
+# Convert to fp16 elements (16 bits each)
+elems = upcast(bits, 16)    # Layout((32, (2, 4)), (2, (1, 64)))
+
+# Convert back
+assert downcast(elems, 16) == bits
+```
 
 ## Tuple Arithmetic
 
