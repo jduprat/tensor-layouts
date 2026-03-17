@@ -1540,6 +1540,69 @@ def draw_tiled_grid(grid: dict, rows: int, cols: int,
     _save_figure(fig, filename, dpi)
 
 
+def _build_combined_grid_figure(a_grid, b_grid, c_grid,
+                                M, N, K, title=None):
+    """Build a combined A/B/C figure from pre-computed grid dicts.
+
+    Arranges three grid-dict panels in the standard MMA layout:
+
+              B (K×N)
+        A (M×K)    C (M×N)
+    """
+    colors = _make_rainbow_palette(8)
+    font = max(4, min(7, int(60 / max(M, N, K))))
+    gap = 2.0
+    label_margin = 1.5
+
+    total_w = K + gap + N + label_margin
+    total_h = K + gap + M + label_margin
+
+    scale = 0.35
+    fig, ax = plt.subplots(figsize=(total_w * scale + 1.5,
+                                    total_h * scale + 1.0))
+
+    b_ox, b_oy = K + gap, 0
+    a_ox, a_oy = 0, K + gap
+    c_ox, c_oy = K + gap, K + gap
+
+    _draw_tv_cells(ax, b_grid, K, N, colors, offset_x=b_ox, offset_y=b_oy,
+                   fontsize=font, linewidth=0.5)
+    _draw_tv_cells(ax, a_grid, M, K, colors, offset_x=a_ox, offset_y=a_oy,
+                   fontsize=font, linewidth=0.5)
+    _draw_tv_cells(ax, c_grid, M, N, colors, offset_x=c_ox, offset_y=c_oy,
+                   fontsize=font, linewidth=0.5)
+
+    _setup_axes(ax, (-label_margin, total_w), (-label_margin, total_h))
+
+    if title:
+        fig.suptitle(title, fontsize=14, fontweight='bold', y=0.98)
+
+    plt.tight_layout()
+    return fig
+
+
+def draw_combined_mma_grid(a_grid, b_grid, c_grid, M, N, K,
+                           filename=None, dpi=150, title=None):
+    """Draw combined A/B/C grid-dict panels in the standard MMA arrangement.
+
+    This is the grid-dict counterpart of draw_mma_layout.  Use it when
+    you have pre-computed ``(row, col) → (phys_thread, value, logical_thread)``
+    dicts (e.g. from ``tile_mma_grid``).
+
+    Args:
+        a_grid: dict for A panel (M×K)
+        b_grid: dict for B panel (K×N)
+        c_grid: dict for C panel (M×N)
+        M, N, K: panel dimensions
+        filename: output path (SVG/PNG/PDF) or None for inline display
+        dpi: output resolution
+        title: plot title
+    """
+    fig = _build_combined_grid_figure(a_grid, b_grid, c_grid, M, N, K,
+                                      title=title)
+    _save_figure(fig, filename, dpi)
+
+
 def _build_swizzle_figure(base_layout, swizzle,
                           figsize: Optional[Tuple[float, float]] = None,
                           colorize: bool = False,
@@ -1926,6 +1989,24 @@ def show_tiled_grid(grid: dict, rows: int, cols: int,
         matplotlib Figure
     """
     return _build_tiled_grid_figure(grid, rows, cols, title=title)
+
+
+def show_combined_mma_grid(a_grid, b_grid, c_grid, M, N, K,
+                           title=None):
+    """Display combined A/B/C grid-dict panels inline (for Jupyter).
+
+    Args:
+        a_grid: dict for A panel (M×K)
+        b_grid: dict for B panel (K×N)
+        c_grid: dict for C panel (M×N)
+        M, N, K: panel dimensions
+        title: plot title
+
+    Returns:
+        matplotlib Figure
+    """
+    return _build_combined_grid_figure(a_grid, b_grid, c_grid, M, N, K,
+                                       title=title)
 
 
 def show_slice(layout, slice_spec, title: Optional[str] = None,

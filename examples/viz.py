@@ -795,47 +795,6 @@ def _draw_mma_atom(atom, output: Path):
     print(f"    {n_thr} threads, A:{n_val_a} B:{n_val_b} C:{n_val_c} vals/thr")
 
 
-def _draw_combined(a_grid, b_grid, c_grid, M, N, K, filename, title):
-    """Draw combined A, B, C grids in CuTe print_latex_mma arrangement.
-
-    Layout:
-            B (K×N)
-      A (M×K)    C (M×N)
-    """
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-    from layout_algebra.viz import _make_rainbow_palette, _draw_tv_cells, _setup_axes
-
-    colors = _make_rainbow_palette(8)
-    gap = 1.5
-    font = max(4, min(7, int(80 / max(M, N, K))))
-
-    total_w = K + gap + N
-    total_h = K + gap + M
-
-    scale = 0.4
-    fig, ax = plt.subplots(figsize=(total_w * scale + 1.5, total_h * scale + 1.0))
-
-    # Offsets: B top-right, A bottom-left, C bottom-right
-    b_ox, b_oy = K + gap, 0
-    a_ox, a_oy = 0, K + gap
-    c_ox, c_oy = K + gap, K + gap
-
-    _draw_tv_cells(ax, c_grid, M, N, colors, offset_x=c_ox, offset_y=c_oy,
-                   fontsize=font, linewidth=0.4)
-    _draw_tv_cells(ax, a_grid, M, K, colors, offset_x=a_ox, offset_y=a_oy,
-                   fontsize=font, linewidth=0.4)
-    _draw_tv_cells(ax, b_grid, K, N, colors, offset_x=b_ox, offset_y=b_oy,
-                   fontsize=font, linewidth=0.4)
-
-    _setup_axes(ax, (-1, total_w + 0.5), (-1, total_h + 0.5), title=title)
-
-    plt.tight_layout()
-    fig.savefig(str(filename), dpi=150, bbox_inches='tight')
-    plt.close(fig)
-
-
 def _draw_tiled_mma(atom, atom_layout, output: Path, tile_mnk=None):
     """Draw a TiledMMA: atom tiled across multiple quadpairs.
 
@@ -886,8 +845,8 @@ def _draw_tiled_mma(atom, atom_layout, output: Path, tile_mnk=None):
                     title=f"{label}  B ({K}×{N})")
 
     # Combined figure: A (left), B (top-right), C (bottom-right)
-    _draw_combined(a_grid, b_display, c_grid, M, N, K,
-                   output / f"{label}_combined.svg", label)
+    draw_combined_mma_grid(a_grid, b_display, c_grid, M, N, K,
+                           output / f"{label}_combined.svg", title=label)
 
     print(f"✓ Tiled MMA: {label}")
     print(f"    {size(atom_layout)} atoms ({n_am}×{n_an}), "
