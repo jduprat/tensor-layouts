@@ -804,9 +804,15 @@ class TestVisualization:
         """draw_mma_layout runs without error."""
         m, n, k = atom.shape_mnk
         with tempfile.NamedTemporaryFile(suffix=".png") as f:
-            draw_mma_layout(atom.a_layout, atom.b_layout, atom.c_layout,
-                            filename=f.name, tile_mnk=(m, n, k),
-                            main_title=atom.name)
+            if atom.name == "CDNA_4x4x4_F32F16F16_MFMA":
+                with pytest.raises(ValueError, match=r"A .*panel shape .*out of bounds"):
+                    draw_mma_layout(atom.a_layout, atom.b_layout, atom.c_layout,
+                                    filename=f.name, tile_mnk=(m, n, k),
+                                    main_title=atom.name)
+            else:
+                draw_mma_layout(atom.a_layout, atom.b_layout, atom.c_layout,
+                                filename=f.name, tile_mnk=(m, n, k),
+                                main_title=atom.name)
 
 
 # =============================================================================

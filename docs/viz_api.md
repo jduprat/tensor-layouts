@@ -228,7 +228,7 @@ draw_mma_layout(atom.a_layout, atom.b_layout, atom.c_layout,
 | `layout_b` | `Layout` | required | B matrix TV layout |
 | `layout_c` | `Layout` | required | C matrix TV layout |
 | `filename` | `str` | `None` | Output path |
-| `tile_mnk` | `(M, N, K)` | `None` | MMA tile dimensions |
+| `tile_mnk` | `(M, N, K)` | `None` | MMA tile dimensions; incompatible operand panels raise `ValueError` instead of clipping |
 | `main_title` | `str` | `None` | Overall title |
 | `dpi` | `int` | `150` | Resolution |
 | `colorize` | `bool` | `True` | Rainbow colors |

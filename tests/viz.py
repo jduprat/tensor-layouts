@@ -359,3 +359,10 @@ def test_compute_tv_mapping_uses_first_wins_for_duplicate_cells():
     layout = Layout((2, 2), (0, 0))
     tv_map = _compute_tv_mapping(layout, grid_rows=1, grid_cols=1)
     assert tv_map == {(0, 0): (0, 0, 0)}
+
+
+@requires_viz
+def test_compute_tv_mapping_raises_for_out_of_bounds_grid():
+    layout = Layout((2, 2), (1, 2))
+    with pytest.raises(ValueError, match="out of bounds"):
+        _compute_tv_mapping(layout, grid_rows=1, grid_cols=1)

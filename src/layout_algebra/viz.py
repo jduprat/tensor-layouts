@@ -981,6 +981,11 @@ def _compute_tv_mapping(layout, grid_cols: Optional[int] = None,
                 else:
                     row = out_idx // grid_cols
                     col = out_idx % grid_cols
+                if not (0 <= row < grid_rows and 0 <= col < grid_cols):
+                    raise ValueError(
+                        f"TV layout output cell {(row, col)} is out of bounds for "
+                        f"grid_shape=({grid_rows}, {grid_cols}); offset={out_idx}"
+                    )
                 # Store (physical_thread_id, value_id, logical_thread_id)
                 key = (row, col)
                 if key not in inv_map:
@@ -1181,6 +1186,9 @@ def draw_mma_layout(layout_a, layout_b, layout_c, filename=None,
         layout_c: TV layout for matrix C (M×N)
         filename: Output path (.svg, .png, or .pdf)
         tile_mnk: Optional (M, N, K) dimensions. If None, inferred from cosize.
+                  If an operand layout does not fit within those logical panel
+                  dimensions, a ValueError is raised instead of silently
+                  dropping cells.
         main_title: Optional title for the entire figure
         dpi: Resolution for raster formats
         colorize: If True, use rainbow colors by thread ID
@@ -1242,10 +1250,16 @@ def draw_mma_layout(layout_a, layout_b, layout_c, filename=None,
     def draw_tv_matrix(layout, offset_x, offset_y, matrix_rows, matrix_cols,
                        title, title_above=True, col_major=True):
         """Draw a TV matrix at the given offset with cute-viz style labeling."""
-        tv_map = _compute_tv_mapping(layout, grid_cols=matrix_cols,
-                                     grid_rows=matrix_rows,
-                                     thr_id_layout=thr_id_layout,
-                                     col_major=col_major)
+        try:
+            tv_map = _compute_tv_mapping(layout, grid_cols=matrix_cols,
+                                         grid_rows=matrix_rows,
+                                         thr_id_layout=thr_id_layout,
+                                         col_major=col_major)
+        except ValueError as exc:
+            raise ValueError(
+                f"{title} layout does not fit within panel shape "
+                f"({matrix_rows}, {matrix_cols}): {exc}"
+            ) from exc
 
         # Title
         if title:
