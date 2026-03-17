@@ -1682,6 +1682,110 @@ def draw_combined_mma_grid(a_grid, b_grid, c_grid, M, N, K,
     _save_figure(fig, filename, dpi)
 
 
+def _build_copy_figure(src_layout, dst_layout,
+                       grid_shape=None, title=None,
+                       colorize=True, thr_id_layout=None,
+                       col_major=True):
+    """Build a side-by-side src/dst copy layout figure.
+
+    Matches CUTLASS print_latex_copy: two TV grids with the same coloring
+    so thread data movement is visually traceable.
+
+    Layout:
+        Src (rows×cols)    Dst (rows×cols)
+    """
+    r_s, r_d = rank(src_layout), rank(dst_layout)
+    if r_s != 2:
+        raise ValueError(f"src_layout must be rank 2, got rank {r_s}")
+    if r_d != 2:
+        raise ValueError(f"dst_layout must be rank 2, got rank {r_d}")
+
+    rows, cols = _infer_tv_grid_shape(src_layout, grid_shape=grid_shape)
+
+    num_t = size(mode(src_layout, 0))
+    n_colors = min(num_t, 8)
+    if colorize:
+        colors = _make_rainbow_palette(n_colors)
+    else:
+        colors = _make_grayscale_palette(n_colors)
+
+    gap = 3.0
+    label_margin = 0.5
+    total_width = 2 * cols + gap + 2 * label_margin
+    total_height = rows + 2 * label_margin
+
+    scale = 0.5
+    fig_width = total_width * scale + 1.5
+    fig_height = total_height * scale + 1.0
+
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+
+    # Source grid (left)
+    src_map = _compute_tv_mapping(src_layout, grid_cols=cols, grid_rows=rows,
+                                  thr_id_layout=thr_id_layout,
+                                  col_major=col_major)
+    _draw_tv_cells(ax, src_map, rows, cols, colors,
+                   offset_x=0, offset_y=0,
+                   fontsize=6, linewidth=0.5)
+    ax.text(cols / 2, -0.6, "Src",
+            ha='center', va='bottom', fontsize=10, fontweight='bold')
+
+    # Destination grid (right)
+    dst_ox = cols + gap
+    dst_map = _compute_tv_mapping(dst_layout, grid_cols=cols, grid_rows=rows,
+                                  thr_id_layout=thr_id_layout,
+                                  col_major=col_major)
+    _draw_tv_cells(ax, dst_map, rows, cols, colors,
+                   offset_x=dst_ox, offset_y=0,
+                   fontsize=6, linewidth=0.5)
+    ax.text(dst_ox + cols / 2, -0.6, "Dst",
+            ha='center', va='bottom', fontsize=10, fontweight='bold')
+
+    _setup_axes(ax, (-label_margin, total_width - label_margin),
+                (-label_margin, total_height - label_margin))
+
+    if title:
+        fig.suptitle(title, fontsize=12, fontweight='bold', y=0.98)
+
+    plt.tight_layout()
+    return fig
+
+
+def draw_copy_layout(src_layout, dst_layout, filename=None,
+                     grid_shape=None, title=None,
+                     dpi=150, colorize=True, thr_id_layout=None,
+                     col_major=True):
+    """Draw a copy layout showing src and dst TV grids side by side.
+
+    Matches CUTLASS print_latex_copy: same thread coloring on both panels
+    so data movement is visually traceable.
+
+    Args:
+        src_layout: TV layout for source (thread, value) -> offset
+        dst_layout: TV layout for destination (thread, value) -> offset
+        filename: Output path (.svg, .png, or .pdf)
+        grid_shape: Optional (rows, cols) for the output grids. If None,
+                    inferred from cosize of src_layout.
+        title: Optional title for the entire figure
+        dpi: Resolution for raster formats
+        colorize: If True, use rainbow colors; if False, use grayscale
+        thr_id_layout: Optional layout for thread ID mapping
+        col_major: If True, fill columns first (default)
+
+    Example:
+        # LDMATRIX x4 non-transpose (fp16)
+        src = Layout((32, 8), (8, 1))     # smem src
+        dst = Layout((32, (2, 4)), (2, (1, 64)))  # register dst
+        draw_copy_layout(src, dst, "ldsm_x4.svg",
+                         grid_shape=(16, 16), title="SM75 LDMATRIX x4")
+    """
+    fig = _build_copy_figure(src_layout, dst_layout,
+                             grid_shape=grid_shape, title=title,
+                             colorize=colorize, thr_id_layout=thr_id_layout,
+                             col_major=col_major)
+    _save_figure(fig, filename, dpi)
+
+
 def _build_swizzle_figure(base_layout, swizzle,
                           figsize: Optional[Tuple[float, float]] = None,
                           colorize: bool = False,
@@ -1999,6 +2103,30 @@ def show_swizzle(base_layout, swizzle,
                                  figsize=figsize,
                                  colorize=colorize,
                                  num_shades=num_shades)
+
+
+def show_copy_layout(src_layout, dst_layout,
+                     grid_shape=None, title=None,
+                     colorize=True, thr_id_layout=None,
+                     col_major=True):
+    """Display a copy layout inline (for Jupyter notebooks).
+
+    Args:
+        src_layout: TV layout for source
+        dst_layout: TV layout for destination
+        grid_shape: Optional (rows, cols) for the output grids
+        title: Optional title
+        colorize: If True, use rainbow colors
+        thr_id_layout: Optional layout for thread ID mapping
+        col_major: If True, fill columns first (default)
+
+    Returns:
+        matplotlib Figure
+    """
+    return _build_copy_figure(src_layout, dst_layout,
+                              grid_shape=grid_shape, title=title,
+                              colorize=colorize, thr_id_layout=thr_id_layout,
+                              col_major=col_major)
 
 
 def show_tv_layout(layout, title: Optional[str] = None,
