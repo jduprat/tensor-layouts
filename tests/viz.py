@@ -59,14 +59,20 @@ try:
         _get_indices_2d,
         _get_color_indices_2d,
         draw_composite,
+        draw_copy_layout,
         draw_layout,
         draw_mma_layout,
         draw_slice,
         draw_swizzle,
         draw_tiled_grid,
         draw_tv_layout,
+        show_copy_layout,
         show_layout,
+        show_mma_layout,
+        show_slice,
         show_swizzle,
+        show_tiled_grid,
+        show_tv_layout,
     )
     HAS_VIZ = True
 except ImportError:
@@ -220,6 +226,96 @@ def test_draw_composite_smoke():
             main_title="Composite Smoke",
             colorize=True,
         )
+
+
+@requires_viz
+def test_draw_copy_layout_smoke():
+    src = Layout((4, 2), (2, 1))
+    dst = Layout((4, 2), (1, 4))
+    with tempfile.NamedTemporaryFile(suffix=".png") as f:
+        draw_copy_layout(src, dst, filename=f.name,
+                         title="copy smoke", colorize=True)
+
+
+@requires_viz
+def test_draw_copy_layout_rejects_rank1():
+    with pytest.raises(ValueError, match="rank 2"):
+        draw_copy_layout(Layout(8, 1), Layout((4, 2), (2, 1)),
+                         filename="ignored.png")
+
+
+@requires_viz
+def test_show_copy_layout_returns_figure():
+    src = Layout((4, 2), (2, 1))
+    dst = Layout((4, 2), (1, 4))
+    fig = show_copy_layout(src, dst, title="copy show")
+    try:
+        assert isinstance(fig, matplotlib.figure.Figure)
+    finally:
+        plt.close(fig)
+
+
+@requires_viz
+def test_show_tv_layout_returns_figure():
+    fig = show_tv_layout(Layout((4, 2), (2, 1)))
+    try:
+        assert isinstance(fig, matplotlib.figure.Figure)
+    finally:
+        plt.close(fig)
+
+
+@requires_viz
+def test_show_mma_layout_returns_figure():
+    from layout_algebra.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
+    atom = SM80_16x8x16_F16F16F16F16_TN
+    fig = show_mma_layout(atom.a_layout, atom.b_layout, atom.c_layout,
+                          tile_mnk=atom.shape_mnk, colorize=True,
+                          thr_id_layout=atom.thr_id)
+    try:
+        assert isinstance(fig, matplotlib.figure.Figure)
+    finally:
+        plt.close(fig)
+
+
+@requires_viz
+def test_show_tiled_grid_returns_figure():
+    from layout_algebra.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
+    atom = SM80_16x8x16_F16F16F16F16_TN
+    atom_layout = Layout((2, 2), (1, 2))
+    grid, tile_shape = tile_mma_grid(atom, atom_layout, matrix="C")
+    fig = show_tiled_grid(grid, tile_shape[0], tile_shape[1], title="tiled")
+    try:
+        assert isinstance(fig, matplotlib.figure.Figure)
+    finally:
+        plt.close(fig)
+
+
+@requires_viz
+def test_show_slice_returns_figure():
+    fig = show_slice(Layout((4, 8), (8, 1)), (2, None))
+    try:
+        assert isinstance(fig, matplotlib.figure.Figure)
+    finally:
+        plt.close(fig)
+
+
+@requires_viz
+def test_draw_copy_layout_same_thread_colors_both_panels():
+    """Src and dst panels should use the same color for the same thread."""
+    src = Layout((4, 2), (2, 1))
+    dst = Layout((4, 2), (1, 4))
+    fig = show_copy_layout(src, dst, colorize=True)
+    try:
+        ax = fig.axes[0]
+        patches_list = ax.patches
+        # 4×2=8 cells per panel, 2 panels = 16 patches
+        assert len(patches_list) == 16
+        src_colors = [p.get_facecolor() for p in patches_list[:8]]
+        dst_colors = [p.get_facecolor() for p in patches_list[8:]]
+        # Thread 0 should get the same color on both sides
+        assert src_colors[0] == dst_colors[0]
+    finally:
+        plt.close(fig)
 
 
 @requires_viz
