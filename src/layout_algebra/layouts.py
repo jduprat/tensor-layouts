@@ -2227,6 +2227,12 @@ def logical_divide(layout: Layout, tiler: Any) -> Layout:
 
     Formally: logical_divide(A, B) = compose(A, Layout(B, complement(B, size(A))))
 
+    Intuition: to tile A by B, we need two coordinates:
+    - "which element within a tile?" -> B (the tiler itself)
+    - "which tile?" -> complement(B) (fills the gaps between tiles)
+    Layout(B, complement(B)) bundles these into (within-tile, across-tiles).
+    Composing with A maps this coordinate space through A's pattern.
+
     The result has the structure: (Tile, Rest)
 
     For multi-mode tilers (tuples), each mode is divided independently:
