@@ -131,6 +131,15 @@ HIERARCHY_LEVEL_COLORS = [
     '#9467bd',  # purple
 ]
 
+# Light variants for use on dark cell backgrounds
+HIERARCHY_LEVEL_COLORS_LIGHT = [
+    '#6baed6',  # light blue
+    '#ffbb78',  # light orange
+    '#98df8a',  # light green
+    '#ff9896',  # light red
+    '#c5b0d5',  # light purple
+]
+
 
 def _is_dark(hex_color: str) -> bool:
     """Return True if a hex color is dark enough to need white text."""
@@ -593,15 +602,19 @@ def _level_block_sizes(shape) -> tuple[int, ...]:
     return (1,) + spans[:-1]
 
 
-def _hierarchy_level_color(level: int) -> str:
+def _hierarchy_level_color(level: int, for_dark_bg: bool = False) -> str:
     """Color for a hierarchy level.
 
     Level 0 is the fastest-varying coordinate and has no corresponding tile
     boundary, so keep it neutral. Coarser levels map to the hierarchy palette.
+
+    When ``for_dark_bg`` is True, return a lighter variant so the text remains
+    readable against dark cell backgrounds.
     """
     if level == 0:
-        return '#333333'
-    return HIERARCHY_LEVEL_COLORS[(level - 1) % len(HIERARCHY_LEVEL_COLORS)]
+        return '#cccccc' if for_dark_bg else '#333333'
+    palette = HIERARCHY_LEVEL_COLORS_LIGHT if for_dark_bg else HIERARCHY_LEVEL_COLORS
+    return palette[(level - 1) % len(palette)]
 
 
 def _draw_hierarchy_boundary_lines(ax,
@@ -798,7 +811,7 @@ def _auto_hierarchical_figsize(layout, indices: np.ndarray, rows: int, cols: int
 
 def _draw_colored_coord_line(ax, x: float, y: float, prefix: str, coord,
                              base_color: str, fontsize: float,
-                             use_level_colors: bool):
+                             use_level_colors: bool, for_dark_bg: bool = False):
     """Draw row=/col= line with per-coordinate level colors.
 
     When enabled, the scalar coordinate components use the same colors as the
@@ -812,7 +825,7 @@ def _draw_colored_coord_line(ax, x: float, y: float, prefix: str, coord,
     pieces = [(f"{prefix}=(", base_color)]
     for level, value in enumerate(levels):
         pieces.append((str(value),
-                       _hierarchy_level_color(level) if use_level_colors else base_color))
+                       _hierarchy_level_color(level, for_dark_bg) if use_level_colors else base_color))
         if level != len(levels) - 1:
             pieces.append((",", base_color))
     pieces.append((")", base_color))
@@ -938,7 +951,8 @@ def _draw_hierarchical_grid(ax, layout,
             )
             ax.add_patch(rect)
 
-            text_color = 'white' if _is_dark(facecolor) else 'black'
+            is_dark_bg = _is_dark(facecolor)
+            text_color = 'white' if is_dark_bg else 'black'
             if flatten_hierarchical:
                 # Draw flat offset value in cell
                 ax.text(j + 0.5, i + 0.5, str(idx),
@@ -951,11 +965,13 @@ def _draw_hierarchical_grid(ax, layout,
                 x_left = j + 0.12
                 _draw_colored_coord_line(
                     ax, x_left, i + 0.22, "row", row_coord,
-                    text_color, coord_fontsize, use_level_colors=label_hierarchy_levels
+                    text_color, coord_fontsize, use_level_colors=label_hierarchy_levels,
+                    for_dark_bg=is_dark_bg
                 )
                 _draw_colored_coord_line(
                     ax, x_left, i + 0.50, "col", col_coord,
-                    text_color, coord_fontsize, use_level_colors=label_hierarchy_levels
+                    text_color, coord_fontsize, use_level_colors=label_hierarchy_levels,
+                    for_dark_bg=is_dark_bg
                 )
                 offset_label, offset_value = off_line.split("=", 1)
                 offset_label_text = f"{offset_label}="
