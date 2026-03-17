@@ -428,7 +428,8 @@ def _draw_grid(ax, indices: np.ndarray,
                color_indices: Optional[np.ndarray] = None,
                num_colors: int = 8,
                label_color: str = 'blue',
-               label_fontsize: float = 8):
+               label_fontsize: float = 8,
+               cell_fontsize: Optional[float] = None):
     """Draw a grid of cells with indices on a matplotlib axis.
 
     Args:
@@ -443,8 +444,30 @@ def _draw_grid(ax, indices: np.ndarray,
         colorize: If True, use rainbow colors; if False, use grayscale
         color_indices: 2D array of per-cell color indices aligned with `indices`.
         num_colors: Number of colors in palette (default 8)
+        label_color: Color for row/column margin labels
+        label_fontsize: Font size for margin labels
+        cell_fontsize: Font size for cell value text. If None, auto-scaled
+            based on the figure width and number of columns so text fits
+            within cells.
     """
     rows, cols = indices.shape
+
+    # Auto-scale cell font size: estimate inches per cell from the figure,
+    # then pick a font size that fits the widest value inside cells.
+    if cell_fontsize is None:
+        fig = ax.get_figure()
+        if fig is not None:
+            fig_w, _ = fig.get_size_inches()
+            n_axes = max(len(fig.axes), 1)
+            panel_w = fig_w / n_axes * 0.85
+            inches_per_cell = panel_w / max(cols, 1)
+            max_val = int(np.max(np.abs(indices))) if indices.size > 0 else 0
+            n_digits = max(len(str(max_val)), 1)
+            max_fs = inches_per_cell * 72 / (n_digits * 0.6)
+            cell_fontsize = max(4, min(8, max_fs))
+            label_fontsize = min(label_fontsize, cell_fontsize)
+        else:
+            cell_fontsize = 8
 
     # Build the appropriate palette
     if colorize:
@@ -513,8 +536,8 @@ def _draw_grid(ax, indices: np.ndarray,
             facecolor = final_facecolors[i, j]
             text_color = 'white' if _is_dark(facecolor) else 'black'
             ax.text(j + 0.5, i + 0.5, str(idx),
-                    ha='center', va='center', fontsize=8, color=text_color,
-                    zorder=7)
+                    ha='center', va='center', fontsize=cell_fontsize,
+                    color=text_color, zorder=7)
 
     if show_labels:
         # Row labels (left)
@@ -2012,6 +2035,21 @@ def draw_copy_layout(src_layout, dst_layout, filename=None,
     _save_figure(fig, filename, dpi)
 
 
+def _swizzle_figsize(linear_idx, swizzle_idx, rows, cols):
+    """Compute figure size for a two-panel swizzle comparison.
+
+    Uses the larger of the "comfortable" cell width (0.5in, matching the
+    original 8×8 sizing) and the minimum width needed to render the widest
+    cell value at 7pt without overlap.
+    """
+    max_val = max(int(np.max(linear_idx)), int(np.max(swizzle_idx)))
+    n_digits = max(len(str(max_val)), 1)
+    # Minimum cell width so 7pt text fits: digit ≈ 0.6em
+    min_cell_w = n_digits * 0.6 * 7 / 72
+    cell_w = max(min_cell_w, 0.5)
+    return (cols * cell_w * 2 + 3, rows * 0.5 + 1.5)
+
+
 def _build_swizzle_figure(base_layout, swizzle,
                           figsize: Optional[Tuple[float, float]] = None,
                           colorize: bool = False,
@@ -2029,18 +2067,18 @@ def _build_swizzle_figure(base_layout, swizzle,
         effective_colors = blocks_per_row
         bit_shift = swizzle.base
         if figsize is None:
-            figsize = (cols * 0.6 + 3, rows * 0.5 + 1.5)
+            figsize = _swizzle_figsize(linear_idx, swizzle_idx, rows, cols)
     elif swizzle.base == 0:
         effective_colors = num_colors
         bit_shift = 0
         if figsize is None:
-            figsize = (cols * 1.0 + 3, rows * 0.5 + 1.5)
+            figsize = _swizzle_figsize(linear_idx, swizzle_idx, rows, cols)
     else:
         bit_shift = swizzle.base
         distinct_groups = len(set(int(v) >> bit_shift for v in linear_idx.flat))
         effective_colors = max(num_colors, distinct_groups)
         if figsize is None:
-            figsize = (cols * 1.0 + 3, rows * 0.5 + 1.5)
+            figsize = _swizzle_figsize(linear_idx, swizzle_idx, rows, cols)
 
     def _swizzle_color_indices(idx_array):
         return np.vectorize(lambda v: (int(v) >> bit_shift) % effective_colors)(idx_array)
