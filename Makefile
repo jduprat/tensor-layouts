@@ -1,4 +1,4 @@
-.PHONY: build clean test
+.PHONY: build clean test docs
 
 build:
 	pip install -e .
@@ -12,3 +12,6 @@ clean:
 
 test:
 	python -m pytest tests/ -v
+
+docs:
+	PYTHONPATH=src python3 docs/generate_figures.py
