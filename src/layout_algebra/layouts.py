@@ -2717,6 +2717,13 @@ def blocked_product(layout_a: Layout, layout_b: Layout) -> Layout:
     Unlike logical_product which concatenates (A, B) for 1D, blocked_product
     always interleaves corresponding modes: ((A0, B0), (A1, B1), ...).
 
+    A varies fastest (block-first): each block is contiguous, with blocks
+    laid out according to B.  Think of A as the "block pattern" and B as
+    the "grid of blocks."
+
+    Compare with raked_product: both interleave, but raked has B vary
+    fastest (rake-first), while blocked has A vary fastest (block-first).
+
     For each mode i:
         result_shape[i] = (A_shape[i], B_shape[i])
         result_stride[i] = (A_stride[i], B_stride[i] * cosize(A))
