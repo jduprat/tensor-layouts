@@ -1822,11 +1822,16 @@ def dice_modes(crd, layout):
 class Tile(tuple):
     """A Tiler is a tuple-of-Layouts used for mode-by-mode composition.
 
-    When composed with a multi-mode layout, each element of the Tile is
-    composed with the corresponding mode of the layout:
+    Tile is semantically distinct from a plain tuple: it signals mode-by-mode
+    composition rather than bundling.  When you compose(L, Tile(A, B)), each
+    mode of L is composed independently:
 
         compose(a, tiler) = Layout(compose(mode(a, 0), tiler[0]),
                                    compose(mode(a, 1), tiler[1]), ...)
+
+    This is different from compose(L, Layout((s0, s1), (d0, d1))) where the
+    Layout is treated as a single mapping.  Tile makes the intent explicit:
+    "apply these tilers to L's modes, one-by-one."
 
     Examples:
         # (12,(4,8)):(59,(13,1))
