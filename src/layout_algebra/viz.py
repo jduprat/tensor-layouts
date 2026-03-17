@@ -77,15 +77,43 @@ from .layouts import *
 # Color palettes and utilities
 # =============================================================================
 
+def _max_contrast_order(n: int) -> list:
+    """Return index permutation for maximum contrast between adjacent entries.
+
+    For *n* = 8 this produces ``[0, 4, 2, 6, 1, 5, 3, 7]``, matching the
+    CUTLASS ``TikzColor_BWx8`` bit-reversal ordering so that consecutive
+    offsets get maximally different brightness.
+    """
+    if n <= 2:
+        return list(range(n))
+    bits = (n - 1).bit_length()
+
+    def _bit_reverse(x: int, nbits: int) -> int:
+        result = 0
+        for _ in range(nbits):
+            result = (result << 1) | (x & 1)
+            x >>= 1
+        return result
+
+    if n & (n - 1) == 0:  # power of 2
+        return [_bit_reverse(i, bits) for i in range(n)]
+    # Non-power-of-2: generate for next power of 2, keep only indices < n
+    n2 = 1 << bits
+    return [x for x in (_bit_reverse(i, bits) for i in range(n2)) if x < n]
+
+
 def _make_grayscale_palette(n: int) -> list:
-    """Generate n grayscale colors from white to dark gray."""
-    # Range from white (255) to dark gray (~80)
-    colors = []
-    for i in range(n):
-        # Interpolate from 255 (white) to 80 (dark gray)
-        gray = int(255 - i * 175 / max(n-1, 1))
-        colors.append(f'#{gray:02X}{gray:02X}{gray:02X}')
-    return colors
+    """Generate *n* grayscale colors from white to dark gray.
+
+    Colors are reordered via a bit-reversal permutation so that consecutive
+    palette indices have maximally different brightness.  This matches the
+    CUTLASS ``TikzColor_BWx8`` convention and avoids the jarring
+    white→dark→white sawtooth that a monotonic palette creates when it wraps
+    around mid-tile.
+    """
+    grays = [int(255 - i * 175 / max(n - 1, 1)) for i in range(n)]
+    order = _max_contrast_order(n)
+    return [f'#{grays[k]:02X}{grays[k]:02X}{grays[k]:02X}' for k in order]
 
 def _make_rainbow_palette(n: int) -> list:
     """Generate n distinct rainbow colors.

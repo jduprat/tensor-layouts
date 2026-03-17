@@ -59,8 +59,11 @@ draw_layout(Layout((8, 8), (8, 1)), title="Row-Major 8x8", colorize=True)
 
 ### Coloring
 
-By default cells are shaded in grayscale by their offset value.  Use
-`colorize=True` for rainbow colors.
+By default cells are shaded in grayscale by their offset value.  The shades
+use a bit-reversal ordering (matching CUTLASS `TikzColor_BWx8`) so that
+consecutive offsets get maximally different brightness — this avoids a
+jarring light→dark→light sawtooth when the palette wraps around mid-tile.
+Use `colorize=True` for rainbow colors.
 
 The `color_layout` parameter gives fine control over which cells share
 colors. It is evaluated in the same logical coordinate space as the layout
