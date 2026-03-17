@@ -161,60 +161,35 @@ def _mfma_c_layout(
     )
 
 
-def _mfma_a_layout(
-    m: int,
+def _mfma_input_layout(
+    rows: int,
     k: int,
     num_threads_per_blk: int,
     num_input_blks: int,
-    num_v_a: int,
     k_per_blk: int,
 ) -> Layout:
-    """Build the (T64, V_a) -> col-major(M, K) input A layout.
+    """Build the (T64, V) -> col-major(rows, K) input layout for A or B.
 
-    For k-reduction MFMA variants, A is broadcast: all blocks see the same
-    A data. Each lane provides k_per_blk elements of one row of A.
+    Both A and B use the same broadcast structure: each lane provides
+    k_per_blk elements of one row, and the blk_id dimension has stride 0.
 
-        row = lane_id % num_threads_per_blk
-        col = vgpr_idx  (0..k_per_blk-1, within each of num_v_a VGPRs)
-
-    For non-k-reduction variants with multiple output blocks, the lane also
-    selects a block, but the A mapping is still based on thread position
-    within the block.
-
-    We use stride-0 for the blk_id dimension (broadcast across blocks).
-    """
-    # Thread: (num_input_blks, num_threads_per_blk)
-    # Value:  k_per_blk values per lane (packed in num_v_a VGPRs)
-    #
-    # offset = (lane_id % num_threads_per_blk) * 1   (row of A, col-major)
-    #        + vgpr_idx * m                           (k dimension)
-    # blk_id dimension has stride 0 (broadcast)
-    return Layout(
-        ((num_input_blks, num_threads_per_blk), k_per_blk),
-        ((0, 1), m),
-    )
-
-
-def _mfma_b_layout(
-    n: int,
-    k: int,
-    num_threads_per_blk: int,
-    num_input_blks: int,
-    num_v_b: int,
-    k_per_blk: int,
-) -> Layout:
-    """Build the (T64, V_b) -> col-major(N, K) input B layout.
-
-    B is broadcast identically to A (same lane-to-row mapping).
+    For A, rows=M and the value stride is M.
+    For B, rows=N and the value stride is N.
 
         row = lane_id % num_threads_per_blk
         col = vgpr_idx  (0..k_per_blk-1)
 
     stride-0 for blk_id (broadcast across blocks).
     """
+    # Thread: (num_input_blks, num_threads_per_blk)
+    # Value:  k_per_blk values per lane
+    #
+    # offset = (lane_id % num_threads_per_blk) * 1   (row, col-major)
+    #        + vgpr_idx * rows                        (k dimension)
+    # blk_id dimension has stride 0 (broadcast)
     return Layout(
         ((num_input_blks, num_threads_per_blk), k_per_blk),
-        ((0, 1), n),
+        ((0, 1), rows),
     )
 
 
@@ -271,12 +246,12 @@ def make_mfma_atom(
         num_threads_per_blk, num_input_blks,
     )
 
-    a_layout = _mfma_a_layout(
-        m, k, num_threads_per_blk, num_input_blks, num_v_a, k_per_blk,
+    a_layout = _mfma_input_layout(
+        m, k, num_threads_per_blk, num_input_blks, k_per_blk,
     )
 
-    b_layout = _mfma_b_layout(
-        n, k, num_threads_per_blk, num_input_blks, num_v_b, k_per_blk,
+    b_layout = _mfma_input_layout(
+        n, k, num_threads_per_blk, num_input_blks, k_per_blk,
     )
 
     return MMAAtom(
