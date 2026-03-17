@@ -1173,6 +1173,12 @@ def complement(layout: Layout, cosize_bound: Any = None) -> Layout:
     visits the in-between offsets {0, 1} (stride-1 within each stride-2 gap).
     Together, Layout(L, complement(L)) covers every offset exactly once.
 
+    Why "complement"?  Think of L as selecting a subset of [0, cosize).
+    The complement fills "the rest" — not by set subtraction, but by filling
+    the stride gaps.  The bundled Layout(L, complement(L)) is a bijection
+    onto [0, cosize), with L controlling position within each gap, and
+    complement(L) controlling which gap.
+
     This is the key building block for logical_divide: dividing a layout by a
     tiler T is equivalent to composing with Layout(T, complement(T)).
 
