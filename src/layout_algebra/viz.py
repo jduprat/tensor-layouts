@@ -628,7 +628,12 @@ def _build_composite_figure(panels: list,
         # Draw the panel
         if panel_tv_mode:
             _draw_tv_grid(ax, layout, title=title,
-                          colorize=panel_colorize, num_colors=num_colors)
+                          colorize=panel_colorize,
+                          num_colors=opts.get('num_colors', num_colors),
+                          grid_rows=opts.get('grid_rows'),
+                          grid_cols=opts.get('grid_cols'),
+                          thr_id_layout=opts.get('thr_id_layout'),
+                          col_major=opts.get('col_major', True))
         else:
             grid = _prepare_offset_grid(layout, color_layout=color_layout,
                                         eval_fn=eval_fn)
@@ -666,8 +671,11 @@ def draw_composite(panels: list, filename: str,
     For MMA visualizations, use the dedicated draw_mma_layout() function instead.
 
     Args:
-        panels: List of Layout objects or (Layout, options_dict) tuples.
-                Options can include: colorize, color_layout, tv_mode, etc.
+        panels: List of Layout/Tensor objects or (Layout/Tensor, options_dict)
+                tuples. Per-panel options override the top-level defaults:
+                  colorize, color_layout, num_colors -- offset-grid options
+                  tv_mode -- if True, render this panel as a TV grid
+                  grid_rows, grid_cols, thr_id_layout, col_major -- TV options
         filename: Output path (.svg, .png, or .pdf)
         arrangement: How to arrange panels:
             - "horizontal": side by side (1 row)

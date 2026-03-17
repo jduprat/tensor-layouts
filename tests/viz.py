@@ -283,6 +283,22 @@ def test_draw_composite_smoke():
 
 
 @requires_viz
+def test_draw_composite_mixed_tv_and_offset():
+    """Composite figure with per-panel tv_mode: one offset grid, one TV grid."""
+    atom = SM80_16x8x16_F16F16F16F16_TN
+    panels = [
+        Layout((4, 4), (4, 1)),  # offset grid (default)
+        (atom.c_layout, {'tv_mode': True}),  # TV grid
+    ]
+    fig = show_composite(panels, titles=["Offset", "TV"])
+    try:
+        assert isinstance(fig, matplotlib.figure.Figure)
+        assert len(fig.axes) == 2
+    finally:
+        plt.close(fig)
+
+
+@requires_viz
 def test_draw_copy_layout_smoke():
     src = Layout((4, 2), (2, 1))
     dst = Layout((4, 2), (1, 4))
