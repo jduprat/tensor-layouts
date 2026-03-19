@@ -36,10 +36,7 @@ See also:
 """
 
 from tensor_layouts import *
-from tensor_layouts.analysis import (
-    offset_table, bank_conflicts, coalescing_efficiency,
-    cycles, fixed_points, order, explain,
-)
+from tensor_layouts.analysis import *
 
 
 # =============================================================================
@@ -789,6 +786,32 @@ def example_analysis():
     explain(logical_divide, Layout(16, 1), 4)
     print()
     explain(logical_product, Layout(4, 1), Layout(3, 1))
+
+    # --- Contiguity ---
+    print(f"\n  Contiguity (vector width)")
+    print("  " + "-" * 40)
+
+    layouts = [
+        ("Contiguous 1D",        Layout(8, 1)),
+        ("Strided 1D",           Layout(8, 2)),
+        ("Col-major 4x8",       Layout((4, 8), (1, 4))),
+        ("Gapped 4x8",          Layout((4, 8), (1, 8))),
+        ("Row-major 4x8",       Layout((4, 8), (8, 1))),
+    ]
+    for label, l in layouts:
+        print(f"  {label:20s} {str(l):25s} contiguity={contiguity(l)}")
+
+    # --- Atom summary ---
+    print(f"\n  Atom Summary")
+    print("  " + "-" * 40)
+
+    from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
+    from tensor_layouts.atoms_amd import CDNA_32x32x8_F32F16F16_MFMA
+
+    print()
+    atom_summary(SM80_16x8x16_F16F16F16F16_TN)
+    print()
+    atom_summary(CDNA_32x32x8_F32F16F16_MFMA)
 
 
 # =============================================================================

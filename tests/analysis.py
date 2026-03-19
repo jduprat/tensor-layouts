@@ -23,15 +23,7 @@
 import pytest
 
 from tensor_layouts import *
-from tensor_layouts.analysis import (
-    offset_table,
-    bank_conflicts,
-    coalescing_efficiency,
-    cycles,
-    fixed_points,
-    order,
-    explain,
-)
+from tensor_layouts.analysis import *
 
 
 ## offset_table
@@ -251,6 +243,80 @@ def test_order_not_bijective():
     """Non-bijective layout raises ValueError."""
     with pytest.raises(ValueError):
         order(Layout(4, 2))
+
+
+## contiguity
+
+
+def test_contiguity_contiguous():
+    """Fully contiguous layout."""
+    assert contiguity(Layout(8, 1)) == 8
+
+
+def test_contiguity_strided():
+    """Strided layout: no contiguity."""
+    assert contiguity(Layout(8, 2)) == 1
+
+
+def test_contiguity_2d_col_major():
+    """Column-major 2D: fully contiguous (stride-1 throughout)."""
+    assert contiguity(Layout((4, 8), (1, 4))) == 32
+
+
+def test_contiguity_2d_gapped():
+    """2D with gap between modes: contiguous only within mode 0."""
+    assert contiguity(Layout((4, 8), (1, 8))) == 4
+
+
+def test_contiguity_2d_row_major():
+    """Row-major 2D: contiguous within first mode (size 1 stride, but mode 0 has stride > 1)."""
+    # (4,8):(8,1) -> mode 0 has stride 8, so contiguity is 1
+    assert contiguity(Layout((4, 8), (8, 1))) == 1
+
+
+def test_contiguity_broadcast():
+    """Broadcast (stride 0): no contiguity."""
+    assert contiguity(Layout(8, 0)) == 1
+
+
+## atom_summary
+
+
+def test_atom_summary_nv_sm80():
+    """SM80 16x8x16 F16 atom summary."""
+    from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
+    result = atom_summary(SM80_16x8x16_F16F16F16F16_TN)
+    assert result['shape_mnk'] == (16, 8, 16)
+    assert result['threads'] == 32
+    assert result['values_c'] > 0
+    assert result['c_coverage_ok']
+
+
+def test_atom_summary_nv_sm80_f32():
+    """SM80 16x8x8 F32 accumulator atom."""
+    from tensor_layouts.atoms_nv import SM80_16x8x8_F32F16F16F32_TN
+    result = atom_summary(SM80_16x8x8_F32F16F16F32_TN)
+    assert result['shape_mnk'] == (16, 8, 8)
+    assert result['threads'] == 32
+    assert result['c_coverage_ok']
+
+
+def test_atom_summary_amd_cdna():
+    """AMD CDNA 32x32x8 MFMA atom summary."""
+    from tensor_layouts.atoms_amd import CDNA_32x32x8_F32F16F16_MFMA
+    result = atom_summary(CDNA_32x32x8_F32F16F16_MFMA)
+    assert result['shape_mnk'] == (32, 32, 8)
+    assert result['threads'] == 64  # AMD wavefront
+    assert result['c_coverage_ok']
+
+
+def test_atom_summary_text_output():
+    """atom_summary returns a readable text summary."""
+    from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
+    result = atom_summary(SM80_16x8x16_F16F16F16F16_TN)
+    assert 'SM80' in result['text']
+    assert '16 x 8 x 16' in result['text']
+    assert 'Threads' in result['text']
 
 
 ## explain

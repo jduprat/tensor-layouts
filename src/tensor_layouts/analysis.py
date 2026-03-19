@@ -32,14 +32,20 @@ cache line size, warp width).
 Import explicitly; these are not re-exported from the top-level package.
 """
 
-from .layouts import (
-    Layout, size, cosize, mode, idx2crd, is_layout, is_int,
-    image, is_bijective,
-    compose, complement, logical_divide, logical_product,
-    right_inverse, left_inverse,
-    blocked_product, raked_product,
-    zipped_divide, tiled_divide, flat_divide,
-)
+from .layouts import *  # noqa: F401,F403
+from .atoms import MMAAtom
+
+__all__ = [
+    "offset_table",
+    "bank_conflicts",
+    "coalescing_efficiency",
+    "cycles",
+    "fixed_points",
+    "order",
+    "contiguity",
+    "atom_summary",
+    "explain",
+]
 
 
 # =============================================================================
@@ -294,6 +300,111 @@ def order(layout: Layout) -> int:
         length = len(cycle)
         result = result * length // gcd(result, length)
 
+    return result
+
+
+# =============================================================================
+# Contiguity
+# =============================================================================
+
+def contiguity(layout: Layout) -> int:
+    """Return the longest contiguous vector width from the start of the layout.
+
+    Counts how many consecutive elements starting from flat index 0 map
+    to consecutive memory offsets.  This tells you the maximum vector
+    load/store width: if contiguity is 4, you can issue a 4-wide
+    vectorized access.
+
+    Formally, this is max_common_vector(layout, identity_of_same_size),
+    but the name makes the intent clear.
+
+    Examples:
+        contiguity(Layout(8, 1))              # 8  (fully contiguous)
+        contiguity(Layout(8, 2))              # 1  (strided, no contiguity)
+        contiguity(Layout((4, 8), (1, 4)))    # 4  (contiguous within columns)
+        contiguity(Layout((4, 8), (1, 8)))    # 4  (contiguous within mode 0)
+    """
+    return max_common_vector(layout, Layout(size(layout)))
+
+
+# =============================================================================
+# Atom analysis
+# =============================================================================
+
+def atom_summary(atom: MMAAtom) -> dict:
+    """Summarize an MMA atom's key properties.
+
+    Extracts the numbers a kernel developer cares about: how many threads,
+    how many registers per thread for each operand, and whether the layouts
+    are well-formed.
+
+    Args:
+        atom: An MMAAtom (NVIDIA or AMD).
+
+    Returns:
+        dict with shape_mnk, threads, values_a/b/c, c_coverage_ok,
+        a_broadcast, b_broadcast.  Also prints a human-readable summary.
+
+    Examples:
+        from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
+        atom_summary(SM80_16x8x16_F16F16F16F16_TN)
+        # SM80_16x8x16_F16F16F16F16_TN
+        #   Shape (M, N, K): 16 x 8 x 16
+        #   Threads:          32
+        #   Values per thread: A=8, B=4, C=4
+        #   C covers M*N:     True
+    """
+    M, N, K = atom.shape_mnk
+
+    # Thread count from C layout's thread mode (mode 0)
+    c_thr = mode(atom.c_layout, 0)
+    threads = size(c_thr)
+
+    # Values per thread from each layout's value mode (mode 1)
+    values_a = size(mode(atom.a_layout, 1))
+    values_b = size(mode(atom.b_layout, 1))
+    values_c = size(mode(atom.c_layout, 1))
+
+    # Check C layout coverage: every element of M*N should be hit exactly once
+    c_offsets = set()
+    num_t = size(mode(atom.c_layout, 0))
+    num_v = size(mode(atom.c_layout, 1))
+    for t in range(num_t):
+        for v in range(num_v):
+            c_offsets.add(atom.c_layout(t, v))
+    c_coverage_ok = len(c_offsets) == M * N
+
+    # Check for broadcast (stride-0) in A and B
+    a_broadcast = atom.a_layout.filter() != atom.a_layout
+    b_broadcast = atom.b_layout.filter() != atom.b_layout
+
+    result = {
+        'name': atom.name,
+        'shape_mnk': atom.shape_mnk,
+        'threads': threads,
+        'values_a': values_a,
+        'values_b': values_b,
+        'values_c': values_c,
+        'c_coverage_ok': c_coverage_ok,
+        'a_broadcast': a_broadcast,
+        'b_broadcast': b_broadcast,
+    }
+
+    lines = [
+        atom.name,
+        f'  Shape (M, N, K): {M} x {N} x {K}',
+        f'  Threads:          {threads}',
+        f'  Values per thread: A={values_a}, B={values_b}, C={values_c}',
+        f'  C covers M*N:     {c_coverage_ok}',
+    ]
+    if a_broadcast:
+        lines.append(f'  A has broadcast (stride-0) modes')
+    if b_broadcast:
+        lines.append(f'  B has broadcast (stride-0) modes')
+
+    text = '\n'.join(lines)
+    print(text)
+    result['text'] = text
     return result
 
 

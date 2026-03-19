@@ -154,6 +154,48 @@ order(Layout((2, 2), (2, 1)))    # 2  (single transposition)
 order(Layout((3, 2), (2, 1)))    # 4  (has a 4-cycle)
 ```
 
+## contiguity(layout)
+
+The longest contiguous vector width from the start of a layout.  Counts
+how many consecutive elements starting from flat index 0 map to
+consecutive memory offsets.  This tells you the maximum vectorized
+load/store width.
+
+```python
+contiguity(Layout(8, 1))            # 8  (fully contiguous)
+contiguity(Layout(8, 2))            # 1  (strided, no contiguity)
+contiguity(Layout((4, 8), (1, 8)))  # 4  (contiguous within mode 0)
+```
+
+## atom_summary(atom)
+
+Human-readable summary of an MMA atom's key properties.  Works with
+both NVIDIA and AMD atoms.
+
+```python
+from tensor_layouts.atoms_nv import SM80_16x8x16_F16F16F16F16_TN
+atom_summary(SM80_16x8x16_F16F16F16F16_TN)
+# SM80_16x8x16_F16F16F16F16_TN
+#   Shape (M, N, K): 16 x 8 x 16
+#   Threads:          32
+#   Values per thread: A=8, B=4, C=4
+#   C covers M*N:     True
+```
+
+Returns a dict:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `name` | str | Atom name |
+| `shape_mnk` | tuple | (M, N, K) logical shape |
+| `threads` | int | Number of active threads |
+| `values_a` | int | Registers per thread for A operand |
+| `values_b` | int | Registers per thread for B operand |
+| `values_c` | int | Registers per thread for C accumulator |
+| `c_coverage_ok` | bool | True if C layout covers all M*N elements exactly once |
+| `a_broadcast` | bool | True if A layout has stride-0 (broadcast) modes |
+| `b_broadcast` | bool | True if B layout has stride-0 (broadcast) modes |
+
 ## explain(fn, *args)
 
 Show step-by-step how an algebra operation computes its result.  Expands
