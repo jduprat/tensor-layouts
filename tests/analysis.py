@@ -321,6 +321,34 @@ def test_atom_summary_text_output():
     assert 'Threads' in result['text']
 
 
+def test_atom_summary_rejects_wrong_c_offsets():
+    """c_coverage_ok must check exact offset set, not just cardinality."""
+    from tensor_layouts.atoms import MMAAtom
+    # Build a 2x2 atom where C layout produces offsets {0, 1, 2, 5}
+    # instead of the expected {0, 1, 2, 3}. Cardinality is 4 = M*N,
+    # but the set is wrong.
+    bad_atom = MMAAtom(
+        name="test_bad_coverage",
+        ptx="test",
+        shape_mnk=(2, 2, 1),
+        thr_id=Layout(4),
+        a_layout=Layout((4, 1), (1, 0)),   # doesn't matter for this test
+        b_layout=Layout((4, 1), (1, 0)),   # doesn't matter for this test
+        # C layout: 4 threads, 1 value each -> offsets 0, 1, 2, 5
+        c_layout=Layout((4, 1), (1, 0)),   # placeholder, override below
+    )
+    # Manually construct a C layout that maps t -> {0, 1, 2, 5}
+    # Layout((4, 1), (1, 0)) maps t -> t, giving {0, 1, 2, 3} — that's correct.
+    # We need offsets {0, 1, 2, 5}: use stride pattern that skips 3.
+    # Layout with shape (2, 2) stride (1, 2) gives 0,1,2,3 — still correct.
+    # Use a non-standard construction: ((2, 2), 1) : ((1, 4), 0) -> 0,1,4,5
+    import dataclasses
+    bad_c = Layout(((2, 2), 1), ((1, 4), 0))
+    bad_atom = dataclasses.replace(bad_atom, c_layout=bad_c)
+    result = atom_summary(bad_atom)
+    assert not result['c_coverage_ok']
+
+
 ## explain
 
 

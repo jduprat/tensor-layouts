@@ -381,7 +381,7 @@ def atom_summary(atom: MMAAtom) -> dict:
     for t in range(num_t):
         for v in range(num_v):
             c_offsets.add(atom.c_layout(t, v))
-    c_coverage_ok = len(c_offsets) == M * N
+    c_coverage_ok = c_offsets == set(range(M * N))
 
     # Check for broadcast (stride-0) in A and B
     a_broadcast = atom.a_layout.filter() != atom.a_layout
