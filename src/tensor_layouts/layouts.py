@@ -75,7 +75,7 @@ __all__ = [
     "is_tuple", "is_int", "is_scalar", "is_iterable", "is_layout",
     "is_pure_shape", "has_none",
     # Shape conversions
-    "as_tuple", "as_shape", "unwrap", "normalize",
+    "as_tuple", "as_shape", "as_layout", "unwrap", "normalize",
     # Core types
     "Layout", "Tile", "Swizzle", "make_swizzle",
     # Stride computation
@@ -132,6 +132,20 @@ def is_tuple(x) -> bool:
 def is_int(x) -> bool:
     """Check if x is an integer (excluding booleans which are int subclasses in Python)."""
     return isinstance(x, int) and not isinstance(x, bool)
+
+
+def as_layout(obj):
+    """Convert a Layout-like object to a Layout.
+
+    Accepts our Layout, or any object with .shape and .stride attributes
+    (e.g. pycute Layout). This allows viz and analysis functions to accept
+    foreign layout objects without requiring them as a dependency.
+    """
+    if isinstance(obj, Layout):
+        return obj
+    if hasattr(obj, 'shape') and hasattr(obj, 'stride'):
+        return Layout(obj.shape, obj.stride)
+    raise TypeError(f"Expected Layout, got {type(obj).__name__}")
 
 
 def is_scalar(x) -> bool:

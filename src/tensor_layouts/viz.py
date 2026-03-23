@@ -260,13 +260,14 @@ def _prepare_offset_grid(
     """Extract all visualization data from a layout into an OffsetGrid.
 
     Args:
-        layout: Layout object to visualize.
+        layout: Layout or Layout-like object (e.g. pycute Layout) to visualize.
         color_layout: Optional layout controlling cell coloring.
         slice_spec: Optional slice specification for highlight mask.
         hierarchical: If True, extract hierarchical cell coordinates.
         eval_fn: Callable mapping coordinates to offset values. Defaults to
             layout.__call__. Pass tensor.__call__ for Tensor visualization.
     """
+    layout = as_layout(layout)
     cell_coords = None
     row_shape = None
     col_shape = None
@@ -330,10 +331,12 @@ def _get_indices_2d(layout, eval_fn=None) -> np.ndarray:
     usual matrix interpretation used throughout the docs and examples.
 
     Args:
-        layout: Layout whose shape determines the grid dimensions.
+        layout: Layout or Layout-like object (e.g. pycute Layout) whose shape
+            determines the grid dimensions.
         eval_fn: Callable mapping coordinates to offset values. Defaults to
             layout.__call__. Pass tensor.__call__ for Tensor visualization.
     """
+    layout = as_layout(layout)
     if eval_fn is None:
         eval_fn = layout
     r = rank(layout)

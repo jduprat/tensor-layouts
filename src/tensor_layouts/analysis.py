@@ -66,6 +66,7 @@ def offset_table(layout: Layout) -> dict:
         offset_table(Layout((4, 2), (0, 1)))
         # {0: [0, 1, 2, 3], 1: [4, 5, 6, 7]}  -- broadcast aliasing
     """
+    layout = as_layout(layout)
     table = {}
     for i in range(size(layout)):
         coord = idx2crd(i, layout.shape)
@@ -112,6 +113,7 @@ def bank_conflicts(layout: Layout, *, num_banks: int = 32,
         bank_conflicts(Layout(32, 0))
         # {'conflict_free': True, 'max_ways': 1, ...}  (broadcast, not a conflict)
     """
+    layout = as_layout(layout)
     elements_per_bank = bank_width_bytes // element_bytes
     if elements_per_bank < 1:
         elements_per_bank = 1
@@ -194,6 +196,7 @@ def coalescing_efficiency(layout: Layout, *, warp_size: int = 32,
         coalescing_efficiency(Layout(32, 2))
         # {'transactions': 2, 'efficiency': 0.5, ...}
     """
+    layout = as_layout(layout)
     n = min(size(layout), warp_size)
 
     # Find which cache lines are touched and count unique offsets
@@ -241,6 +244,7 @@ def cycles(layout: Layout) -> list:
         cycles(compose(Swizzle(1, 0, 1), Layout(4, 1)))
         # [[0], [1, 2], [3]]  -- 0 and 3 are fixed, 1<->2 swap
     """
+    layout = as_layout(layout)
     if not is_bijective(layout):
         raise ValueError(
             f"Layout is not bijective (size={size(layout)}, "
@@ -275,6 +279,7 @@ def fixed_points(layout: Layout) -> list:
         fixed_points(Layout(4, 1))          # [0, 1, 2, 3]
         fixed_points(Layout((2, 2), (2, 1)))  # [0, 3]
     """
+    layout = as_layout(layout)
     return [i for i in range(size(layout)) if layout(i) == i]
 
 
@@ -291,6 +296,7 @@ def order(layout: Layout) -> int:
         # Swizzle is its own inverse (XOR twice = identity), so order = 2
         # (unless it has fixed points only, then order = 1)
     """
+    layout = as_layout(layout)
     from math import gcd
 
     cycle_list = cycles(layout)
@@ -326,6 +332,7 @@ def contiguity(layout: Layout) -> int:
         contiguity(Layout((4, 8), (1, 4)))    # 4  (contiguous within columns)
         contiguity(Layout((4, 8), (1, 8)))    # 4  (contiguous within mode 0)
     """
+    layout = as_layout(layout)
     return max_common_vector(layout, Layout(size(layout)))
 
 
