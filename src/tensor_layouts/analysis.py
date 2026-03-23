@@ -80,23 +80,32 @@ def offset_table(layout: Layout) -> dict:
 # =============================================================================
 
 def bank_conflicts(layout: Layout, *, num_banks: int = 32,
-                   element_bytes: int = 2, bank_width_bytes: int = 4):
+                   element_bytes: int = 2, bank_width_bytes: int = 4,
+                   group_size: int = 32):
     """Analyze shared memory bank conflicts for a thread-to-offset layout.
 
     Given a layout that maps thread indices to shared memory offsets,
-    compute how many bank conflicts occur when all threads access memory
-    simultaneously.
+    compute how many bank conflicts occur when a group of threads
+    accesses memory simultaneously.
 
     Shared memory is divided into banks (typically 32).  Two threads
     conflict when they access the same bank but different addresses
     within that bank.  The conflict factor (max_ways) tells you how
     many times the access must serialize.
 
+    Only the first ``group_size`` threads are analyzed, matching the
+    hardware issue granularity (warp on NVIDIA, wavefront on AMD).
+    This avoids overstating conflicts when the layout spans multiple
+    warps.  The model assigns each access to its starting bank word;
+    accesses wider than one bank word are not tracked across banks.
+
     Args:
         layout: Maps thread_id -> memory offset (in elements).
         num_banks: Number of shared memory banks (32 on NVIDIA GPUs).
         element_bytes: Size of each element in bytes (2 for fp16).
         bank_width_bytes: Width of each bank in bytes (4 on NVIDIA GPUs).
+        group_size: Number of threads analyzed as one simultaneous group
+            (32 = one NVIDIA warp, 64 = one AMD wavefront).
 
     Returns:
         dict with:
@@ -114,11 +123,7 @@ def bank_conflicts(layout: Layout, *, num_banks: int = 32,
         # {'conflict_free': True, 'max_ways': 1, ...}  (broadcast, not a conflict)
     """
     layout = as_layout(layout)
-    elements_per_bank = bank_width_bytes // element_bytes
-    if elements_per_bank < 1:
-        elements_per_bank = 1
-
-    n = size(layout)
+    n = min(size(layout), group_size)
 
     # Map each thread to (bank, word_address)
     # A bank conflict occurs when threads access different 4-byte words in the

@@ -117,6 +117,19 @@ def test_bank_conflicts_fp32():
     assert result['conflict_free']
 
 
+def test_bank_conflicts_group_size():
+    """Multi-warp layouts are analyzed per group, not all threads at once."""
+    # 64 threads with stride 32: aggregating all 64 would double the conflicts
+    r32 = bank_conflicts(Layout(32, 32), element_bytes=2)
+    r64_default = bank_conflicts(Layout(64, 32), element_bytes=2)
+    # Default group_size=32 limits analysis to first warp
+    assert r64_default['max_ways'] == r32['max_ways']
+
+    # Explicitly analyzing all 64 threads gives a larger conflict factor
+    r64_full = bank_conflicts(Layout(64, 32), element_bytes=2, group_size=64)
+    assert r64_full['max_ways'] > r32['max_ways']
+
+
 ## coalescing_efficiency
 
 
