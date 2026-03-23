@@ -2540,6 +2540,13 @@ def _logical_divide_by_shape(layout: Layout, tiler_shape: Any) -> Layout:
     layout_shapes = as_tuple(layout.shape)
     layout_strides = as_tuple(layout.stride)
 
+    # CuTe C++ static_asserts: "logical_divide: Too many modes in tiler."
+    if len(tiler_sizes) > len(layout_shapes):
+        raise ValueError(
+            f"logical_divide: tiler has more modes ({len(tiler_sizes)}) "
+            f"than layout ({len(layout_shapes)})"
+        )
+
     result_shapes = []
     result_strides = []
 
@@ -2563,10 +2570,17 @@ def _logical_divide_by_shape(layout: Layout, tiler_shape: Any) -> Layout:
         elif tile_size == 1:
             result_shapes.append((1, s))
             result_strides.append((d, d))
-        elif tile_size <= mode_size:
+        elif tile_size <= mode_size and mode_size % tile_size == 0:
             rest_size = mode_size // tile_size
             result_shapes.append((tile_size, rest_size))
             result_strides.append((d, elem_scale(d, tile_size)))
+        elif tile_size <= mode_size:
+            # Non-divisible: fall through to compose/complement path,
+            # matching CuTe C++ which always uses that path for int tilers
+            mode_layout = Layout(s, d)
+            divided = logical_divide(mode_layout, Layout(tile_size, 1))
+            result_shapes.append(divided.shape)
+            result_strides.append(divided.stride)
         else:
             tile_part = compose(Layout(s, d), Layout(tile_size, 1))
             tile_s = unwrap(tile_part.shape) if is_tuple(tile_part.shape) else tile_part.shape

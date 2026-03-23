@@ -753,6 +753,54 @@ def test_divide_1d_known_results():
     assert flat.stride == (1, 4)
 
 
+def test_logical_divide_non_divisible_tuple_tiler():
+    """Tuple tiler where tile doesn't evenly divide a mode (CuTe uses ceil_div).
+
+    Validated against pycute (CuTe Python reference) — all shapes, strides,
+    sizes, and index mappings match.
+    """
+    # The original bug: (5,8):(1,5) / (2,4) used floor(5/2)=2 instead of ceil(5/2)=3
+    L = Layout((5, 8), (1, 5))
+    result = logical_divide(L, (2, 4))
+    assert result.shape == ((2, 3), (4, 2))
+    assert result.stride == ((1, 2), (5, 20))
+    assert size(result) == 48  # was incorrectly 32 before fix
+
+    # (3,8):(1,3) / (2,4) -> ceil(3/2) = 2
+    result2 = logical_divide(Layout((3, 8), (1, 3)), (2, 4))
+    assert result2.shape == ((2, 2), (4, 2))
+    assert result2.stride == ((1, 2), (3, 12))
+    assert size(result2) == 32
+
+    # (7,6):(1,7) / (3,4) -> ceil(7/3) = 3, ceil(6/4) = 2
+    result3 = logical_divide(Layout((7, 6), (1, 7)), (3, 4))
+    assert result3.shape == ((3, 3), (4, 2))
+    assert result3.stride == ((1, 3), (7, 28))
+    assert size(result3) == 72
+
+    # Divisible cases still work with the fast path
+    L4 = Layout((8, 6))
+    r4 = logical_divide(L4, (4, 3))
+    assert r4.shape == ((4, 2), (3, 2))
+    for i in range(size(L4)):
+        assert r4(i) == L4(i)
+
+
+def test_logical_divide_rejects_over_rank_tiler():
+    """Tuple tiler with more modes than layout must raise (matches CuTe static_assert)."""
+    with pytest.raises(ValueError, match="more modes"):
+        logical_divide(Layout((4, 8), (1, 4)), (2, 4, 6))
+
+    with pytest.raises(ValueError, match="more modes"):
+        logical_divide(Layout(8), (2, 4))
+
+    # Exact rank is fine
+    logical_divide(Layout((4, 8), (1, 4)), (2, 4))
+
+    # Fewer tiler modes is fine (undivided modes pass through)
+    logical_divide(Layout((4, 8, 3), (1, 4, 32)), (2, 4))
+
+
 def test_logical_product():
     # logical_product combines two layouts
     A = Layout(4, 1)
