@@ -39,7 +39,9 @@ __all__ = [
     "offset_table",
     "footprint",
     "bank_conflicts",
+    "per_group_bank_conflicts",
     "coalescing_efficiency",
+    "per_group_coalescing",
     "cycles",
     "fixed_points",
     "order",
@@ -276,6 +278,143 @@ def coalescing_efficiency(layout: Layout, *, warp_size: int = 32,
         'transactions': transactions,
         'efficiency': efficiency,
         'cache_lines': sorted(cache_lines),
+    }
+
+
+# =============================================================================
+# Per-group analysis
+# =============================================================================
+
+def per_group_bank_conflicts(layout: Layout, *, group_size: int = 32,
+                              num_banks: int = 32, element_bytes: int = 2,
+                              bank_width_bytes: int = 4) -> dict:
+    """Analyze bank conflicts per warp/wavefront group across a full layout.
+
+    Splits the layout into groups of ``group_size`` threads and analyzes
+    bank conflicts for each group independently.
+
+    Args:
+        layout: Maps thread_id -> memory offset (in elements).
+        group_size: Threads per group (32 = NVIDIA warp, 64 = AMD wave).
+        num_banks: Number of shared memory banks.
+        element_bytes: Size of each element in bytes.
+        bank_width_bytes: Width of each bank in bytes.
+
+    Returns:
+        dict with:
+            groups: list of per-group result dicts (conflict_free, max_ways,
+                bank_to_threads)
+            worst_group: index of group with highest max_ways
+            worst_max_ways: the highest max_ways across all groups
+    """
+    layout = as_layout(layout)
+    n = size(layout)
+    num_groups = (n + group_size - 1) // group_size
+
+    groups = []
+    worst_idx = 0
+    worst_ways = 0
+
+    for g in range(num_groups):
+        start = g * group_size
+        end = min(start + group_size, n)
+
+        thread_banks = {}
+        for t in range(start, end):
+            offset = layout(t)
+            byte_addr = offset * element_bytes
+            word_addr = byte_addr // bank_width_bytes
+            bank = word_addr % num_banks
+            thread_banks.setdefault(bank, []).append((t, word_addr))
+
+        max_ways = 1
+        bank_to_threads = {}
+        for bank, accesses in thread_banks.items():
+            bank_to_threads[bank] = [t for t, _ in accesses]
+            addr_groups = {}
+            for t, addr in accesses:
+                addr_groups.setdefault(addr, []).append(t)
+            ways = len(addr_groups)
+            if ways > max_ways:
+                max_ways = ways
+
+        result = {
+            'conflict_free': max_ways <= 1,
+            'max_ways': max_ways,
+            'bank_to_threads': bank_to_threads,
+        }
+        groups.append(result)
+        if max_ways > worst_ways:
+            worst_ways = max_ways
+            worst_idx = g
+
+    return {
+        'groups': groups,
+        'worst_group': worst_idx,
+        'worst_max_ways': worst_ways,
+    }
+
+
+def per_group_coalescing(layout: Layout, *, group_size: int = 32,
+                          element_bytes: int = 2,
+                          cache_line_bytes: int = 128) -> dict:
+    """Analyze coalescing efficiency per warp/wavefront group across a full layout.
+
+    Splits the layout into groups of ``group_size`` threads and analyzes
+    coalescing for each group independently.
+
+    Args:
+        layout: Maps thread_id -> memory offset (in elements).
+        group_size: Threads per group (32 = NVIDIA warp, 64 = AMD wave).
+        element_bytes: Size of each element in bytes.
+        cache_line_bytes: Cache line size in bytes.
+
+    Returns:
+        dict with:
+            groups: list of per-group coalescing_efficiency() results
+            worst_group: index of group with lowest efficiency
+            worst_efficiency: the lowest efficiency across all groups
+    """
+    layout = as_layout(layout)
+    n = size(layout)
+    num_groups = (n + group_size - 1) // group_size
+
+    groups = []
+    worst_idx = 0
+    worst_eff = float('inf')
+
+    for g in range(num_groups):
+        start = g * group_size
+        end = min(start + group_size, n)
+
+        cache_lines = set()
+        unique_offsets = set()
+        for t in range(start, end):
+            offset = layout(t)
+            unique_offsets.add(offset)
+            byte_addr = offset * element_bytes
+            cache_line = byte_addr // cache_line_bytes
+            cache_lines.add(cache_line)
+
+        transactions = len(cache_lines)
+        useful_bytes = len(unique_offsets) * element_bytes
+        transferred_bytes = transactions * cache_line_bytes
+        efficiency = useful_bytes / transferred_bytes if transferred_bytes > 0 else 0.0
+
+        result = {
+            'transactions': transactions,
+            'efficiency': efficiency,
+            'cache_lines': sorted(cache_lines),
+        }
+        groups.append(result)
+        if efficiency < worst_eff:
+            worst_eff = efficiency
+            worst_idx = g
+
+    return {
+        'groups': groups,
+        'worst_group': worst_idx,
+        'worst_efficiency': worst_eff,
     }
 
 

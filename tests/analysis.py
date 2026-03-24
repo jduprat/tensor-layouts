@@ -206,6 +206,29 @@ def test_coalescing_broadcast():
     assert result['efficiency'] == pytest.approx(2.0 / 128)
 
 
+## per-group analysis
+
+
+def test_per_group_bank_conflicts():
+    """Per-group analysis matches single-group result for each warp."""
+    r_single = bank_conflicts(Layout(32, 32), element_bytes=2)
+    r_per = per_group_bank_conflicts(Layout(64, 32), element_bytes=2)
+    assert len(r_per['groups']) == 2
+    # Each group should match the single-warp result
+    for g in r_per['groups']:
+        assert g['max_ways'] == r_single['max_ways']
+    assert r_per['worst_max_ways'] == r_single['max_ways']
+
+
+def test_per_group_coalescing():
+    """Per-group coalescing for a uniform layout gives identical per-warp results."""
+    r_per = per_group_coalescing(Layout(64, 1), element_bytes=2)
+    assert len(r_per['groups']) == 2
+    for g in r_per['groups']:
+        assert g['efficiency'] == pytest.approx(0.5)
+        assert g['transactions'] == 1
+
+
 ## cycles
 
 
