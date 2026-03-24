@@ -164,6 +164,14 @@ def test_bank_conflicts_group_size():
     assert r64_full['max_ways'] > r32['max_ways']
 
 
+def test_bank_conflicts_group_size_validation():
+    """group_size <= 0 must raise ValueError."""
+    with pytest.raises(ValueError, match="group_size must be positive"):
+        bank_conflicts(Layout(32, 1), group_size=0)
+    with pytest.raises(ValueError, match="group_size must be positive"):
+        bank_conflicts(Layout(32, 1), group_size=-1)
+
+
 ## coalescing_efficiency
 
 
@@ -204,6 +212,38 @@ def test_coalescing_broadcast():
     assert result['transactions'] == 1
     # Only 1 unique offset: 1 * 2 bytes useful out of 128 transferred
     assert result['efficiency'] == pytest.approx(2.0 / 128)
+
+
+## segment_analysis
+
+
+def test_segment_analysis_contiguous_fp16():
+    """32 threads, stride 1, fp16: 2 segments, 1 cache line."""
+    result = segment_analysis(Layout(32, 1))
+    # 32 * 2B = 64B -> 2 segments of 32B, 1 cache line of 128B
+    assert result['segments'] == 2
+    assert result['cache_lines'] == 1
+    assert result['unique_bytes'] == 64
+    assert result['requested_bytes'] == 64
+    assert result['transferred_bytes'] == 64  # 2 * 32
+    assert result['segment_efficiency'] == pytest.approx(1.0)
+    assert result['first_alignment'] == 0
+
+
+def test_segment_analysis_strided():
+    """Stride-2 touches more segments than contiguous."""
+    result = segment_analysis(Layout(32, 2), element_bytes=2)
+    # offsets 0,2,4,...,62 -> byte addrs 0,4,8,...,124 -> 4 segments
+    assert result['segments'] == 4
+    assert result['cache_lines'] == 1
+
+
+def test_segment_analysis_broadcast():
+    """Broadcast: 1 segment, minimal unique bytes."""
+    result = segment_analysis(Layout(32, 0), element_bytes=2)
+    assert result['segments'] == 1
+    assert result['unique_bytes'] == 2
+    assert result['requested_bytes'] == 64
 
 
 ## per-group analysis
@@ -415,6 +455,28 @@ def test_atom_summary_rejects_wrong_c_offsets():
     import dataclasses
     bad_c = Layout(((2, 2), 1), ((1, 4), 0))
     bad_atom = dataclasses.replace(bad_atom, c_layout=bad_c)
+    result = atom_summary(bad_atom)
+    assert not result['c_coverage_ok']
+
+
+def test_atom_summary_rejects_duplicate_c_coverage():
+    """c_coverage_ok must be False when C layout produces duplicate offsets."""
+    from tensor_layouts.atoms import MMAAtom
+    import dataclasses
+    # Build a 2x2x1 atom where C layout has shape (4, 2) stride (1, 0).
+    # This maps (t, v) pairs to offsets [0,0,1,1,2,2,3,3] — correct set
+    # but each offset appears twice.
+    base = MMAAtom(
+        name="test_duplicate_coverage",
+        ptx="test",
+        shape_mnk=(2, 2, 1),
+        thr_id=Layout(4),
+        a_layout=Layout((4, 1), (1, 0)),
+        b_layout=Layout((4, 1), (1, 0)),
+        c_layout=Layout((4, 1), (1, 0)),  # placeholder
+    )
+    dup_c = Layout((4, 2), (1, 0))  # 8 accesses, offsets 0..3 each twice
+    bad_atom = dataclasses.replace(base, c_layout=dup_c)
     result = atom_summary(bad_atom)
     assert not result['c_coverage_ok']
 

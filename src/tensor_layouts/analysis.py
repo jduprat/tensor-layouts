@@ -41,6 +41,7 @@ __all__ = [
     "bank_conflicts",
     "per_group_bank_conflicts",
     "coalescing_efficiency",
+    "segment_analysis",
     "per_group_coalescing",
     "cycles",
     "fixed_points",
@@ -176,6 +177,8 @@ def bank_conflicts(layout: Layout, *, num_banks: int = 32,
         # {'conflict_free': True, 'max_ways': 1, ...}  (broadcast, not a conflict)
     """
     layout = as_layout(layout)
+    if group_size <= 0:
+        raise ValueError(f"group_size must be positive, got {group_size}")
     n = min(size(layout), group_size)
 
     # Map each thread to (bank, word_address)
@@ -281,6 +284,71 @@ def coalescing_efficiency(layout: Layout, *, warp_size: int = 32,
     }
 
 
+def segment_analysis(layout: Layout, *, warp_size: int = 32,
+                      element_bytes: int = 2,
+                      segment_bytes: int = 32,
+                      cache_line_bytes: int = 128):
+    """Segment- and alignment-aware global memory transaction analysis.
+
+    A more detailed model than ``coalescing_efficiency()``.  NVIDIA GPUs
+    transfer memory in 32-byte segments within 128-byte cache lines.  A
+    warp access may touch fewer cache lines than segments when accesses
+    cluster within a line but span multiple segments.
+
+    Args:
+        layout: Maps thread_id -> memory offset (in elements).
+        warp_size: Threads per warp.
+        element_bytes: Size of each element in bytes.
+        segment_bytes: Memory segment size in bytes (32 on NVIDIA GPUs).
+        cache_line_bytes: Cache line size in bytes (128 on NVIDIA GPUs).
+
+    Returns:
+        dict with:
+            segments: number of 32B segments touched
+            cache_lines: number of 128B cache lines touched
+            unique_bytes: bytes for unique addressed elements
+            requested_bytes: bytes requested by all threads (including duplicates)
+            transferred_bytes: total bytes transferred (segments * segment_bytes)
+            segment_efficiency: unique_bytes / transferred_bytes
+            first_byte_addr: byte address of the first thread's access
+            first_alignment: alignment of first_byte_addr to segment_bytes
+    """
+    layout = as_layout(layout)
+    n = min(size(layout), warp_size)
+
+    segments = set()
+    lines = set()
+    unique_offsets = set()
+    first_byte = None
+
+    for t in range(n):
+        offset = layout(t)
+        unique_offsets.add(offset)
+        byte_addr = offset * element_bytes
+        if first_byte is None:
+            first_byte = byte_addr
+        segments.add(byte_addr // segment_bytes)
+        lines.add(byte_addr // cache_line_bytes)
+
+    first_byte = first_byte if first_byte is not None else 0
+    n_segments = len(segments)
+    n_lines = len(lines)
+    unique_bytes = len(unique_offsets) * element_bytes
+    requested_bytes = n * element_bytes
+    transferred_bytes = n_segments * segment_bytes
+
+    return {
+        'segments': n_segments,
+        'cache_lines': n_lines,
+        'unique_bytes': unique_bytes,
+        'requested_bytes': requested_bytes,
+        'transferred_bytes': transferred_bytes,
+        'segment_efficiency': unique_bytes / transferred_bytes if transferred_bytes > 0 else 0.0,
+        'first_byte_addr': first_byte,
+        'first_alignment': first_byte % segment_bytes,
+    }
+
+
 # =============================================================================
 # Per-group analysis
 # =============================================================================
@@ -308,6 +376,8 @@ def per_group_bank_conflicts(layout: Layout, *, group_size: int = 32,
             worst_max_ways: the highest max_ways across all groups
     """
     layout = as_layout(layout)
+    if group_size <= 0:
+        raise ValueError(f"group_size must be positive, got {group_size}")
     n = size(layout)
     num_groups = (n + group_size - 1) // group_size
 
@@ -376,6 +446,8 @@ def per_group_coalescing(layout: Layout, *, group_size: int = 32,
             worst_efficiency: the lowest efficiency across all groups
     """
     layout = as_layout(layout)
+    if group_size <= 0:
+        raise ValueError(f"group_size must be positive, got {group_size}")
     n = size(layout)
     num_groups = (n + group_size - 1) // group_size
 
@@ -572,13 +644,15 @@ def atom_summary(atom: MMAAtom) -> dict:
     values_c = size(mode(atom.c_layout, 1))
 
     # Check C layout coverage: every element of M*N should be hit exactly once
-    c_offsets = set()
+    c_offset_list = []
     num_t = size(mode(atom.c_layout, 0))
     num_v = size(mode(atom.c_layout, 1))
     for t in range(num_t):
         for v in range(num_v):
-            c_offsets.add(atom.c_layout(t, v))
-    c_coverage_ok = c_offsets == set(range(M * N))
+            c_offset_list.append(atom.c_layout(t, v))
+    c_offsets = set(c_offset_list)
+    c_coverage_ok = (c_offsets == set(range(M * N))
+                     and len(c_offset_list) == M * N)
 
     # Check for broadcast (stride-0) in A and B
     a_broadcast = atom.a_layout.filter() != atom.a_layout
